@@ -1,0 +1,77 @@
+#pragma kernel SSFiltering
+
+#include "../Octahedron.cginc"
+#include "../SH2.cginc"
+
+Texture2D<float4> _SSProbes;
+
+RWTexture2D<float4> _TestMergeAll;
+
+RWTexture3D<float3> _SHAtlas;
+
+uniform int		_ProbeSize;
+uniform float2	_Resolution;
+
+float luminance(float3 color)
+{
+	return (color.r * 0.3) + (color.g * 0.59) + (color.b * 0.11);
+}
+
+[numthreads(8,8,1)]
+void SSFiltering(uint3 id : SV_DispatchThreadID)
+{
+	uint2 index = id.xy * _ProbeSize;
+
+	float4 mixedColor = 0;
+
+	SH9Color shOutput;
+
+	float weightSum	= 0;
+	for (int x = 0; x < _ProbeSize; x++)
+	{
+		for (int y = 0; y < _ProbeSize; y++)
+		{
+			float2	octaUV		= float2(x, y);
+			float3	direction	= UVtoOctahedron((octaUV + 0.5) / _ProbeSize);
+
+			float4	radiance	= _SSProbes[index + uint2(x, y)];
+
+			SH9Color sh9Color = genLightingCoefficientsForNormal(direction, radiance.rgb);
+
+			shOutput.sh0 += sh9Color.sh0;
+			shOutput.sh1 += sh9Color.sh1;
+			shOutput.sh2 += sh9Color.sh2;
+			shOutput.sh3 += sh9Color.sh3;
+			shOutput.sh4 += sh9Color.sh4;
+			shOutput.sh5 += sh9Color.sh5;
+			shOutput.sh6 += sh9Color.sh6;
+			shOutput.sh7 += sh9Color.sh7;
+			shOutput.sh8 += sh9Color.sh8;
+
+			weightSum += 1;// luminance(radiance.rgb) * 3;
+			mixedColor += radiance;
+		}
+	}
+
+	shOutput.sh0 /= max(1, weightSum);
+	shOutput.sh1 /= max(1, weightSum);
+	shOutput.sh2 /= max(1, weightSum);
+	shOutput.sh3 /= max(1, weightSum);
+	shOutput.sh4 /= max(1, weightSum);
+	shOutput.sh5 /= max(1, weightSum);
+	shOutput.sh6 /= max(1, weightSum);
+	shOutput.sh7 /= max(1, weightSum);
+	shOutput.sh8 /= max(1, weightSum);
+
+	_SHAtlas[uint3(id.xy, 0)] = (shOutput.sh0 * 0.5f + 0.5f);
+	_SHAtlas[uint3(id.xy, 1)] = (shOutput.sh1 * 0.5f + 0.5f);
+	_SHAtlas[uint3(id.xy, 2)] = (shOutput.sh2 * 0.5f + 0.5f);
+	_SHAtlas[uint3(id.xy, 3)] = (shOutput.sh3 * 0.5f + 0.5f);
+	_SHAtlas[uint3(id.xy, 4)] = (shOutput.sh4 * 0.5f + 0.5f);
+	_SHAtlas[uint3(id.xy, 5)] = (shOutput.sh5 * 0.5f + 0.5f);
+	_SHAtlas[uint3(id.xy, 6)] = (shOutput.sh6 * 0.5f + 0.5f);
+	_SHAtlas[uint3(id.xy, 7)] = (shOutput.sh7 * 0.5f + 0.5f);
+	_SHAtlas[uint3(id.xy, 8)] = (shOutput.sh8 * 0.5f + 0.5f);
+
+	_TestMergeAll[id.xy] = mixedColor / (_ProbeSize * _ProbeSize) * 2;
+}

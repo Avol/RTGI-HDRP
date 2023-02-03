@@ -1,0 +1,55 @@
+#pragma kernel SSTemporal
+
+Texture2D<float4> _SSProbes;
+Texture2D<float4> _ProbesDepthNormal;
+RWTexture2D<float4> _TemporalAccumulation;
+
+uniform float _TemporalWeight;
+uniform bool _CameraMoved;
+uniform int _ProbeSize;
+uniform int _Upscale;
+
+[numthreads(8,8,1)]
+void SSTemporal(uint3 id : SV_DispatchThreadID)
+{
+	static uint2 closestPixels[9] =
+	{
+		uint2(0, 0),
+		uint2(-1, 1),
+		uint2(0, 1),
+		uint2(1, 1),
+		uint2(1, 0),
+		uint2(1, -1),
+		uint2(0, -1),
+		uint2(-1, -1),
+		uint2(-1, 0),
+	};
+
+
+	float4	depthNormal = _ProbesDepthNormal[id.xy / _Upscale];
+
+
+
+
+	_TemporalAccumulation[id.xy] = lerp(_TemporalAccumulation[id.xy], _SSProbes[id.xy], _CameraMoved ? 1 : _TemporalWeight);
+	return;
+
+	//float4	depthNormal = _ProbesDepthNormal[id.xy / _Upscale];
+
+	
+
+	float3	totalRadiance		= 0;
+	float	totalLuminance		= 0;
+	for (int i = 0; i < 9; i++)
+	{
+		//float3 tDepthNormal = _SSProbes[id.xy + closestPixels[i] * _ProbeSize].rgb;
+		float4	SSProbe			= _SSProbes[id.xy + closestPixels[i] * _ProbeSize];
+		float3	radiance		= SSProbe.rgb;
+		float	distance		= SSProbe.w;
+
+		totalRadiance += radiance;
+	}
+	totalRadiance /= 9;
+
+	_TemporalAccumulation[id.xy] = lerp(_TemporalAccumulation[id.xy], float4(totalRadiance.rgb, 1), _CameraMoved ? 1 : _TemporalWeight);
+}

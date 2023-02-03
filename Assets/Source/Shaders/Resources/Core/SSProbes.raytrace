@@ -1,0 +1,284 @@
+﻿#include "../Common.cginc"
+#include "../Octahedron.cginc"
+
+//--------------------------------------------------------------------------------------------------
+// Included headers
+//--------------------------------------------------------------------------------------------------
+
+// Don't want contact shadows
+#define LIGHT_EVALUATION_NO_CONTACT_SHADOWS // To define before LightEvaluation.hlsl
+// #define LIGHT_EVALUATION_NO_HEIGHT_FOG
+
+#ifndef LIGHTLOOP_DISABLE_TILE_AND_CLUSTER
+    #define USE_BIG_TILE_LIGHTLIST
+#endif
+
+#define PREFER_HALF             0
+#define GROUP_SIZE_1D           8
+#define SHADOW_USE_DEPTH_BIAS   0 // Too expensive, not particularly effective
+#define SHADOW_ULTRA_LOW          // Different options are too expensive.
+#define AREA_SHADOW_LOW           // Different options are too expensive.
+#define SHADOW_AUTO_FLIP_NORMAL 0 // No normal information, so no need to flip
+#define SHADOW_VIEW_BIAS        1 // Prevents light leaking through thin geometry. Not as good as normal bias at grazing angles, but cheaper and independent from the geometry.
+#define USE_DEPTH_BUFFER        1 // Accounts for opaque geometry along the camera ray
+#define SAMPLE_PROBE_VOLUMES    1 && (defined(PROBE_VOLUMES_L1) || defined(PROBE_VOLUMES_L2))
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/GeometricTools.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Filtering.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/VolumeRendering.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/EntityLighting.hlsl"
+
+// We need to include this "for reasons"...
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/Builtin/BuiltinData.hlsl"
+
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/ShaderLibrary/ShaderVariables.hlsl"
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/ShaderPass/ShaderPass.cs.hlsl"
+
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Sky/PhysicallyBasedSky/PhysicallyBasedSkyCommon.hlsl"
+
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Lighting/Lighting.hlsl"
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Lighting/LightLoop/LightLoopDef.hlsl"
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Lighting/LightEvaluation.hlsl"
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/NormalBuffer.hlsl"
+
+
+RaytracingAccelerationStructure _RaytracingAccelerationStructure;
+
+#pragma max_recursion_depth 2
+
+#define SHADER_TARGET 50
+
+RWTexture2D<float4> _SSProbes;
+Texture2D<float4>	_ProbesDepthNormal;
+
+uniform				float3		_CameraUp;
+uniform				float3		_CameraRight;
+uniform				float3		_CameraFront;
+uniform				float		_CameraAspect;
+uniform				float		_CameraFOV;
+
+uniform				int			_Frame;
+uniform				int			_RayCount;
+uniform				float		_DeltaOffset;
+
+uniform				int			_ProbeSize;
+uniform				int			_Upscale;
+uniform				float		_RayConeAngle;
+
+
+Texture2D<float> _CameraDepth;
+SamplerState sampler_CameraDepth;
+
+Texture2D<float4> _NormalBuffer;
+SamplerState sampler_NormalBuffer;
+
+float LinearizeDepth(float z)
+{
+    float zc0 = 1.0 - _ProjectionParams.z / _ProjectionParams.y;
+    float zc1 = _ProjectionParams.z / _ProjectionParams.y;
+    return 1.0 / (zc0 * z + zc1);
+}
+
+// Transforms camera coordinate to world space position.
+// @ m = inverse projection view matrix of the camera.
+float3 worldToScreen(float4x4 m, float3 wPosition)
+{
+	float4 sPosition = mul(m, float4(wPosition, 1));
+	sPosition.xyz /= sPosition.w;
+	return sPosition.xyz;
+}
+
+float3 LightLoop(float3 positionWS)
+{
+	LightLoopContext context;
+	context.shadowContext    = InitShadowContext();
+    context.shadowValue      = 1;
+    context.sampleReflection = 0;
+    context.splineVisibility = -1;
+
+	float3 color = 0;
+
+	if (_DirectionalShadowIndex >= 0)
+    {
+		BuiltinData unused; // Unused for now, so define once
+		ZERO_INITIALIZE(BuiltinData, unused);
+
+		DirectionalLightData light = _DirectionalLightDatas[_DirectionalShadowIndex];
+
+		float3 L = -light.forward;
+
+		PositionInputs posInput;
+		posInput.positionWS = positionWS - _WorldSpaceCameraPos;
+		posInput.positionSS = 0;
+		float3 normalWS		= 0;
+
+		context.shadowValue = GetDirectionalShadowAttenuation(	context.shadowContext,
+																posInput.positionSS, posInput.positionWS, normalWS,
+																light.shadowIndex, L);
+
+
+		SHADOW_TYPE shadow = EvaluateShadow_Directional(context, posInput, light, unused, normalWS);
+		color += ComputeShadowColor(shadow, light.shadowTint, light.penumbraTint);
+	}
+
+	return color;
+}
+
+/*int traceShadow(float3 worldPos)
+{
+	DirectionalLightData light = _DirectionalLightDatas[_DirectionalShadowIndex];
+
+	// Create the ray descriptor for this pixel
+	RayDesc rayDescriptor;
+	rayDescriptor.TMin			= 0;
+	rayDescriptor.TMax			= 100;
+	rayDescriptor.Origin		= worldPos;
+	rayDescriptor.Direction		= -light.forward;
+
+	// Create and init the RayIntersection structure for this
+	RayPayload	rayIntersection;
+	rayIntersection.color				= 0;
+	rayIntersection.distance			= -1;
+
+	TraceRay(_RaytracingAccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, RAYTRACING_OPAQUE_FLAG, 0, 1, 0, rayDescriptor, rayIntersection);
+
+
+	return rayIntersection.distance != -1 ? 0 : 1;
+}*/
+
+
+float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay)
+{
+	const uint rayCount = _RayCount;
+
+
+	float4 radiance = 0;
+	int countRays = 0;
+	for (int i = 0; i < _RayCount; i++)
+	{
+		float invCone = 1.0 - _RayConeAngle;
+
+		float3 jitteredOctaRay = normalize(octaRay * invCone + getCosHemisphereSample(seed, octaRay) * _RayConeAngle);
+
+		if (dot(normal, jitteredOctaRay) <= 0)
+			return 0;
+
+		// Create the ray descriptor for this pixel
+		RayDesc rayDescriptor;
+		rayDescriptor.TMin			= 0;
+		rayDescriptor.TMax			= 100;
+		rayDescriptor.Direction		= jitteredOctaRay;
+		rayDescriptor.Origin		= worldPos + normal * 0.005;// + jitteredOctaRay * 0.01;
+
+		// Create and init the RayIntersection structure for this
+		RayPayload	rayIntersection;
+		rayIntersection.color				= 0;
+		rayIntersection.distance			= 0;
+
+		TraceRay(_RaytracingAccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, RAYTRACING_OPAQUE_FLAG, 0, 1, 0, rayDescriptor, rayIntersection);
+
+		float3 hitPosition	= worldPos + jitteredOctaRay * (rayIntersection.distance - 0.01);
+
+		//float3 lightLoop	= LightLoop(hitPosition);
+
+		radiance += float4(rayIntersection.color/* * lightLoop*/, rayIntersection.distance / 100);
+		countRays++;
+	}
+
+	if (countRays == 0)
+		return 0;
+	 
+	return radiance / countRays;
+}
+
+
+[shader("raygeneration")]
+void MyRaygenShader()
+{
+	// current pixel
+	uint2	dispatchIdx		= DispatchRaysIndex().xy;
+	float2	resolution		= DispatchRaysDimensions().xy;
+
+
+	uint	seed			= initRand(dispatchIdx.x, dispatchIdx.y) + initRand(_Frame, _Frame);
+	
+	uint2	jiterredDispatch	= (dispatchIdx.xy - dispatchIdx.xy % _ProbeSize) / _Upscale;// + jitterUint2;
+	
+	//float4	depthNormal			= _ProbesDepthNormal[jiterredDispatch / _Upscale];
+
+	float depth2 = LoadCameraDepth(jiterredDispatch);
+	
+	PositionInputs posInput = GetPositionInput(dispatchIdx.xy, _ScreenSize.zw, depth2, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
+		
+	//float	linearDepth		= posInput.linearDepth / _ProjectionParams.z;
+	//_SSProbes[dispatchIdx] = linearDepth;
+	//return;
+
+	NormalData normalData0;
+	DecodeFromNormalBuffer(jiterredDispatch, normalData0);
+
+
+
+
+	//float2	jitter			= float2(	random(dispatchIdx.xy / resolution + _Frame / 128.0),
+	//									random(dispatchIdx.yx / resolution + _Frame / 128.0) );
+
+	//if (jitter.x > 1)
+	//{
+	//	_SSProbes[dispatchIdx] = 1;
+	//	return;
+	//}
+
+	//uint2	jitterUint2			= min(_ProbeSize - 1, floor(jitter * _ProbeSize));
+
+
+	//float	depth				= linearDepth;//depthNormal.w;
+	/*if (depth == 0)	// quit early if nothing to trace.
+	{
+		_SSProbes[dispatchIdx] = float4(0, 0, 0, 1);
+		return;
+	}*/
+
+	float3	normal	= normalData0.normalWS;//depthNormal.xyz * 2.0 - 1.0;
+
+
+	// calculate camera ray
+	float2	screenUV		= jiterredDispatch / resolution;
+	//float2	uv = (screenUV - 0.5) * _CameraFOV;
+	//uv.x *= _CameraAspect;
+
+
+	//float4x4	cameraForward = unity_ObjectToWorld;
+
+	//if (cameraForward.x != 0 || cameraForward.y != 0 || cameraForward.z != 0)
+	//{
+	//	_SSProbes[dispatchIdx] = 1;
+	//	return;
+	//}
+
+	//float3	ray = _CameraUp * uv.y + _CameraRight * uv.x + _CameraFront;
+
+	// calculate near & far & ray.
+	//float3 	farPos		= _WorldSpaceCameraPos + ray * _ProjectionParams.z;
+	//float3	nearPos		= _WorldSpaceCameraPos;
+	//float3	worldPos	= lerp(nearPos, farPos, depth);
+	//ray = normalize(farPos - nearPos);
+
+	float3 worldPos = ComputeWorldSpacePosition(screenUV, depth2, UNITY_MATRIX_I_VP) + _WorldSpaceCameraPos;
+
+
+	// calculate octahedral ray direction.
+	float2	octaUV		= dispatchIdx.xy % _ProbeSize;
+	float3	octaRay		= UVtoOctahedron((octaUV + 0.5) / _ProbeSize);
+
+	_SSProbes[dispatchIdx] = trace(seed, worldPos, normal, octaRay);
+}
+
+[shader("miss")]
+void MissShader(inout RayPayload rayIntersection : SV_RayPayload)
+{ 
+	rayIntersection.color			= float3(0, 0, 0);
+	rayIntersection.distance		= -1;
+}

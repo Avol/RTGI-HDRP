@@ -1,0 +1,4 @@
+- optimal probe placement position based on normal depth.
+- can fit upto 4 probes per half pixel with 16px, not 8.
+- store jitter coordinates with similar normal.
+- create space for more probes on highly detailed surfaces.
