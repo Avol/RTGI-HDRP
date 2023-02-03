@@ -1,7 +1,6 @@
 #pragma kernel SSTemporal
 
 Texture2D<float4> _SSProbes;
-Texture2D<float4> _ProbesDepthNormal;
 RWTexture2D<float4> _TemporalAccumulation;
 
 uniform float _TemporalWeight;
@@ -26,17 +25,8 @@ void SSTemporal(uint3 id : SV_DispatchThreadID)
 	};
 
 
-	float4	depthNormal = _ProbesDepthNormal[id.xy / _Upscale];
-
-
-
-
-	_TemporalAccumulation[id.xy] = lerp(_TemporalAccumulation[id.xy], _SSProbes[id.xy], _CameraMoved ? 1 : _TemporalWeight);
-	return;
-
-	//float4	depthNormal = _ProbesDepthNormal[id.xy / _Upscale];
-
-	
+	//_TemporalAccumulation[id.xy] = lerp(_TemporalAccumulation[id.xy], _SSProbes[id.xy], _CameraMoved ? 1 : _TemporalWeight);
+	//return;
 
 	float3	totalRadiance		= 0;
 	float	totalLuminance		= 0;

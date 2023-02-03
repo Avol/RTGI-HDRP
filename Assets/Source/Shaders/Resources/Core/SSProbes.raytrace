@@ -46,7 +46,7 @@
 
 RaytracingAccelerationStructure _RaytracingAccelerationStructure;
 
-#pragma max_recursion_depth 2
+#pragma max_recursion_depth 1
 
 #define SHADER_TARGET 50
 
@@ -54,35 +54,36 @@ RWTexture2D<float4> _SSProbes;
 
 uniform				int			_Frame;
 uniform				int			_RayCount;
-uniform				float		_DeltaOffset;
 
 uniform				int			_ProbeSize;
 uniform				int			_Upscale;
 uniform				float		_RayConeAngle;
 
 
-Texture2D<float> _CameraDepth;
-SamplerState sampler_CameraDepth;
-
-Texture2D<float4> _NormalBuffer;
-SamplerState sampler_NormalBuffer;
-
-float LinearizeDepth(float z)
+int traceShadow(float3 worldPos)
 {
-    float zc0 = 1.0 - _ProjectionParams.z / _ProjectionParams.y;
-    float zc1 = _ProjectionParams.z / _ProjectionParams.y;
-    return 1.0 / (zc0 * z + zc1);
+	DirectionalLightData light = _DirectionalLightDatas[_DirectionalShadowIndex];
+
+	// Create the ray descriptor for this pixel
+	RayDesc rayDescriptor;
+	rayDescriptor.TMin			= 0;
+	rayDescriptor.TMax			= 100;
+	rayDescriptor.Origin		= worldPos;
+	rayDescriptor.Direction		= -light.forward;
+
+	// Create and init the RayIntersection structure for this
+	RayPayload	rayIntersection;
+	rayIntersection.color				= 0;
+	rayIntersection.distance			= -1;
+
+	TraceRay(_RaytracingAccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, RAYTRACING_OPAQUE_FLAG, 0, 1, 0, rayDescriptor, rayIntersection);
+
+
+	return rayIntersection.distance != -1 ? 0 : 1;
 }
 
-// Transforms camera coordinate to world space position.
-// @ m = inverse projection view matrix of the camera.
-float3 worldToScreen(float4x4 m, float3 wPosition)
-{
-	float4 sPosition = mul(m, float4(wPosition, 1));
-	sPosition.xyz /= sPosition.w;
-	return sPosition.xyz;
-}
-
+// TODO: if point outside of camera view, or even better outside of shadow view, do traced shadow.
+// tracing is probably not needed for non directional lights.
 float3 LightLoop(float3 positionWS)
 {
 	LightLoopContext context;
@@ -119,28 +120,6 @@ float3 LightLoop(float3 positionWS)
 	return color;
 }
 
-/*int traceShadow(float3 worldPos)
-{
-	DirectionalLightData light = _DirectionalLightDatas[_DirectionalShadowIndex];
-
-	// Create the ray descriptor for this pixel
-	RayDesc rayDescriptor;
-	rayDescriptor.TMin			= 0;
-	rayDescriptor.TMax			= 100;
-	rayDescriptor.Origin		= worldPos;
-	rayDescriptor.Direction		= -light.forward;
-
-	// Create and init the RayIntersection structure for this
-	RayPayload	rayIntersection;
-	rayIntersection.color				= 0;
-	rayIntersection.distance			= -1;
-
-	TraceRay(_RaytracingAccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, RAYTRACING_OPAQUE_FLAG, 0, 1, 0, rayDescriptor, rayIntersection);
-
-
-	return rayIntersection.distance != -1 ? 0 : 1;
-}*/
-
 
 float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay)
 {
@@ -174,9 +153,9 @@ float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay)
 
 		float3 hitPosition	= worldPos + jitteredOctaRay * (rayIntersection.distance - 0.01);
 
-		//float3 lightLoop	= LightLoop(hitPosition);
+		float3 lightLoop	= LightLoop(hitPosition);
 
-		radiance += float4(rayIntersection.color/* * lightLoop*/, rayIntersection.distance / 100);
+		radiance += float4(rayIntersection.color * lightLoop, rayIntersection.distance / 100);
 		countRays++;
 	}
 
@@ -195,78 +174,32 @@ void MyRaygenShader()
 	float2	resolution		= DispatchRaysDimensions().xy;
 
 
-	uint	seed			= initRand(dispatchIdx.x, dispatchIdx.y) + initRand(_Frame, _Frame);
-	
-	uint2	jiterredDispatch	= (dispatchIdx.xy - dispatchIdx.xy % _ProbeSize) / _Upscale;// + jitterUint2;
-	
-	//float4	depthNormal			= _ProbesDepthNormal[jiterredDispatch / _Upscale];
+	uint	seed				= initRand(dispatchIdx.x, dispatchIdx.y) + initRand(_Frame, _Frame);
 
-	float depth2 = LoadCameraDepth(jiterredDispatch);
-	
-	PositionInputs posInput = GetPositionInput(dispatchIdx.xy, _ScreenSize.zw, depth2, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
-		
-	//float	linearDepth		= posInput.linearDepth / _ProjectionParams.z;
-	//_SSProbes[dispatchIdx] = linearDepth;
-	//return;
+	float2	jitter			= float2(	random(dispatchIdx.xy / resolution + _Frame / 128.0),
+										random(dispatchIdx.yx / resolution + _Frame / 128.0) );
+	uint2	jitterUint2			= min(_ProbeSize - 1, floor(jitter * _ProbeSize));
 
+	uint2	jiterredDispatch	= (dispatchIdx.xy - dispatchIdx.xy % _ProbeSize) + jitterUint2 / _Upscale;
+	float2	screenUV			= jiterredDispatch / resolution;
+
+	float	depth				= LoadCameraDepth(jiterredDispatch);
+	
+	// position
+	PositionInputs posInput		= GetPositionInput(jiterredDispatch, _ScreenSize.zw, depth, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
+	float3	worldPosition		= posInput.positionWS + _WorldSpaceCameraPos;
+
+	// normal
 	NormalData normalData0;
 	DecodeFromNormalBuffer(jiterredDispatch, normalData0);
-
-
-
-
-	//float2	jitter			= float2(	random(dispatchIdx.xy / resolution + _Frame / 128.0),
-	//									random(dispatchIdx.yx / resolution + _Frame / 128.0) );
-
-	//if (jitter.x > 1)
-	//{
-	//	_SSProbes[dispatchIdx] = 1;
-	//	return;
-	//}
-
-	//uint2	jitterUint2			= min(_ProbeSize - 1, floor(jitter * _ProbeSize));
-
-
-	//float	depth				= linearDepth;//depthNormal.w;
-	/*if (depth == 0)	// quit early if nothing to trace.
-	{
-		_SSProbes[dispatchIdx] = float4(0, 0, 0, 1);
-		return;
-	}*/
-
-	float3	normal	= normalData0.normalWS;//depthNormal.xyz * 2.0 - 1.0;
-
-
-	// calculate camera ray
-	float2	screenUV		= jiterredDispatch / resolution;
-	//float2	uv = (screenUV - 0.5) * _CameraFOV;
-	//uv.x *= _CameraAspect;
-
-
-	//float4x4	cameraForward = unity_ObjectToWorld;
-
-	//if (cameraForward.x != 0 || cameraForward.y != 0 || cameraForward.z != 0)
-	//{
-	//	_SSProbes[dispatchIdx] = 1;
-	//	return;
-	//}
-
-	//float3	ray = _CameraUp * uv.y + _CameraRight * uv.x + _CameraFront;
-
-	// calculate near & far & ray.
-	//float3 	farPos		= _WorldSpaceCameraPos + ray * _ProjectionParams.z;
-	//float3	nearPos		= _WorldSpaceCameraPos;
-	//float3	worldPos	= lerp(nearPos, farPos, depth);
-	//ray = normalize(farPos - nearPos);
-
-	float3 worldPos = ComputeWorldSpacePosition(screenUV, depth2, UNITY_MATRIX_I_VP) + _WorldSpaceCameraPos;
+	float3	normal				= normalData0.normalWS;
 
 
 	// calculate octahedral ray direction.
 	float2	octaUV		= dispatchIdx.xy % _ProbeSize;
 	float3	octaRay		= UVtoOctahedron((octaUV + 0.5) / _ProbeSize);
 
-	_SSProbes[dispatchIdx] = trace(seed, worldPos, normal, octaRay);
+	_SSProbes[dispatchIdx] = trace(seed, worldPosition, normal, octaRay);
 }
 
 [shader("miss")]
