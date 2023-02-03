@@ -19,7 +19,7 @@ MonoBehaviour:
     width: 2048
     height: 1060.8
   m_ShowMode: 4
-  m_Title: Inspector
+  m_Title: Game
   m_RootView: {fileID: 2}
   m_MinSize: {x: 875, y: 300}
   m_MaxSize: {x: 10000, y: 10000}
@@ -119,7 +119,7 @@ MonoBehaviour:
   m_MinSize: {x: 300, y: 100}
   m_MaxSize: {x: 24288, y: 16192}
   vertical: 0
-  controlID: 89
+  controlID: 102
 --- !u!114 &6
 MonoBehaviour:
   m_ObjectHideFlags: 52
@@ -302,7 +302,7 @@ MonoBehaviour:
     serializedVersion: 2
     x: 0
     y: 796.8
-    width: 1321.4
+    width: 1383
     height: 266.60004
   m_SerializedDataModeController:
     m_DataMode: 0
@@ -327,7 +327,7 @@ MonoBehaviour:
     m_SkipHidden: 0
     m_SearchArea: 1
     m_Folders:
-    - Assets/Source/Shaders/Resources/Core
+    - Assets/Demo
     m_Globs: []
     m_ProductIds: 
     m_AnyWithAssetOrigin: 0
@@ -336,16 +336,15 @@ MonoBehaviour:
   m_ViewMode: 1
   m_StartGridSize: 65
   m_LastFolders:
-  - Assets/Source/Shaders/Resources/Core
+  - Assets/Demo
   m_LastFoldersGridSize: 65
-  m_LastProjectPath: C:\Users\avola\OneDrive\Stalinis kompiuteris\RTGI\Lumen HDRP
-    0.2
+  m_LastProjectPath: C:\Users\avola\OneDrive\Stalinis kompiuteris\RTGI\RTGI-HDRP
   m_LockTracker:
     m_IsLocked: 0
   m_FolderTreeState:
     scrollPos: {x: 0, y: 0}
-    m_SelectedIDs: d6920000
-    m_LastClickedID: 37590
+    m_SelectedIDs: 747b0000
+    m_LastClickedID: 31604
     m_ExpandedIDs: 000000000e7a0000107a0000127a0000147a0000167a0000
     m_RenameOverlay:
       m_UserAcceptedRename: 0
@@ -399,9 +398,9 @@ MonoBehaviour:
       m_Icon: {fileID: 0}
       m_ResourceFile: 
   m_ListAreaState:
-    m_SelectedInstanceIDs: 
-    m_LastClickedInstanceID: 0
-    m_HadKeyboardFocusLastEvent: 1
+    m_SelectedInstanceIDs: bc780000
+    m_LastClickedInstanceID: 30908
+    m_HadKeyboardFocusLastEvent: 0
     m_ExpandedInstanceIDs: c62300008cf85000eaa60200e2a88300ca930000fed94c005c9a00001a0300004c020000ea030000a602000050030000960200007e030000c6030000460300006202000090020000700200004e03000064020000ac020000dc030000f60300001c0300008602000052030000b0020000a4030000b6040000ae020000d603000084020000349a0000609700007699000090440700c4320200b8440d00be2d0500c2990000bee29e0022b100000000000076a000008e581d004acb0600d6f50000babb0500feff0200046e650088f70000e84d010060490100
     m_RenameOverlay:
       m_UserAcceptedRename: 0
@@ -1008,7 +1007,7 @@ MonoBehaviour:
   m_Rotation:
     m_Target: {x: -0.14902164, y: -0.772269, z: 0.19631562, w: -0.58570087}
     speed: 2
-    m_Value: {x: 0.14902166, y: 0.77226907, z: -0.19631562, w: 0.58570087}
+    m_Value: {x: -0.14900732, y: -0.7721948, z: 0.19629675, w: -0.5856446}
   m_Size:
     m_Target: 23.627607
     speed: 2

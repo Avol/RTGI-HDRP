@@ -51,13 +51,6 @@ RaytracingAccelerationStructure _RaytracingAccelerationStructure;
 #define SHADER_TARGET 50
 
 RWTexture2D<float4> _SSProbes;
-Texture2D<float4>	_ProbesDepthNormal;
-
-uniform				float3		_CameraUp;
-uniform				float3		_CameraRight;
-uniform				float3		_CameraFront;
-uniform				float		_CameraAspect;
-uniform				float		_CameraFOV;
 
 uniform				int			_Frame;
 uniform				int			_RayCount;
