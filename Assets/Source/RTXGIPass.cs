@@ -13,6 +13,8 @@ namespace Avol.RTXGI
 	class RTXGIPass : CustomPass
 	{
 		[Header("Settings")]
+		public bool ExecuteInSceneView = true;
+
 		public int ProbeSize = 8;
 
 		public int Upscale = 1;
@@ -24,8 +26,8 @@ namespace Avol.RTXGI
 		[Range(1, 16)]
 		public int RayCount = 32;
 
-		[Range(0.0f, 128.0f)]
-		public float Multiplier = 1;
+		[Range(0.0f, 10000f)]
+		public float Exposure = 1;
 
 		[Range(0.0f, 1.0f)]
 		public float TemporalWeight = 0.5f;
@@ -60,7 +62,7 @@ namespace Avol.RTXGI
 		public int Frame;
 
 
-		protected override bool executeInSceneView => false;
+		protected override bool executeInSceneView => ExecuteInSceneView;
 
 		private void InitRaytracingAccelerationStructure()
 		{
@@ -118,6 +120,7 @@ namespace Avol.RTXGI
 			_SHAtlas.dimension									= TextureDimension.Tex3D;
 			_SHAtlas.enableRandomWrite							= true;
 			_SHAtlas.filterMode									= FilterMode.Trilinear;
+			_SHAtlas.wrapMode									= TextureWrapMode.Clamp;
 			_SHAtlas.Create();
 
 
@@ -144,7 +147,8 @@ namespace Avol.RTXGI
 			_SSProbesEcodePass(ctx);
 			_ComposePass(ctx);
 
-			Camera.main.transform.hasChanged = false;
+
+			ctx.hdCamera.camera.transform.hasChanged = false;
 		}
 
 		protected override void Cleanup()
@@ -186,7 +190,7 @@ namespace Avol.RTXGI
 			_SSTemporalShader.SetTexture(0, "_TemporalAccumulation", _SSProbesTemporal);
 			_SSTemporalShader.SetInt("_ProbeSize", ProbeSize);
 			_SSTemporalShader.SetFloat("_TemporalWeight", TemporalWeight);
-			_SSTemporalShader.SetBool("_CameraMoved", Camera.main.transform.hasChanged);
+			_SSTemporalShader.SetBool("_CameraMoved", ctx.hdCamera.camera.transform.hasChanged);
 			_SSTemporalShader.SetInt("_Upscale", Upscale);
 	
 			ctx.cmd.DispatchCompute(_SSTemporalShader, 0, _SSProbesTemporal.width, _SSProbesTemporal.height, 1);
@@ -213,20 +217,21 @@ namespace Avol.RTXGI
 			ctx.propertyBlock.SetTexture("_SHAtlas", _SHAtlas);
 			ctx.propertyBlock.SetInt("_ProbeSize", ProbeSize);
 			ctx.propertyBlock.SetFloat("_HarmonicsBlend", HarmonicsBlend);
-			ctx.propertyBlock.SetFloat("_Multiplier", Multiplier);
-			ctx.propertyBlock.SetFloat("_CameraPixelHeight", Camera.main.pixelHeight);
-			ctx.propertyBlock.SetFloat("_CameraPixelWidth", Camera.main.pixelWidth);
+			ctx.propertyBlock.SetFloat("_Exposure", Exposure);
+			ctx.propertyBlock.SetFloat("_CameraPixelHeight", ctx.hdCamera.camera.pixelHeight);
+			ctx.propertyBlock.SetFloat("_CameraPixelWidth", ctx.hdCamera.camera.pixelWidth);
 			ctx.propertyBlock.SetInt("_DebugNormals", DebugNormals ? 1 : 0);
 
 
-			ctx.propertyBlock.SetVector("_CameraPosition", Camera.main.transform.position);
-			ctx.propertyBlock.SetVector("_CameraUp", Camera.main.transform.up);
-			ctx.propertyBlock.SetVector("_CameraRight", Camera.main.transform.right);
-			ctx.propertyBlock.SetVector("_CameraFront", Camera.main.transform.forward);
-			ctx.propertyBlock.SetFloat("_CameraAspect", Camera.main.aspect);
-			ctx.propertyBlock.SetFloat("_CameraFOV", Mathf.Tan(Camera.main.fieldOfView * Mathf.Deg2Rad * 0.5f) * 2f);
-			ctx.propertyBlock.SetFloat("_CameraNear", Camera.main.nearClipPlane);
-			ctx.propertyBlock.SetFloat("_CameraFar", Camera.main.farClipPlane);
+			ctx.propertyBlock.SetVector("_CameraPosition", ctx.hdCamera.camera.transform.position);
+			ctx.propertyBlock.SetVector("_CameraUp", ctx.hdCamera.camera.transform.up);
+			ctx.propertyBlock.SetVector("_CameraRight", ctx.hdCamera.camera.transform.right);
+			ctx.propertyBlock.SetVector("_CameraFront", ctx.hdCamera.camera.transform.forward);
+			ctx.propertyBlock.SetFloat("_CameraAspect", ctx.hdCamera.camera.aspect);
+			ctx.propertyBlock.SetFloat("_CameraFOV", Mathf.Tan(ctx.hdCamera.camera.fieldOfView * Mathf.Deg2Rad * 0.5f) * 2f);
+			ctx.propertyBlock.SetFloat("_CameraNear", ctx.hdCamera.camera.nearClipPlane);
+			ctx.propertyBlock.SetFloat("_CameraFar", ctx.hdCamera.camera.farClipPlane);
+			//ctx.propertyBlock.SetTexture("_GBufferTexture0", Shader.GetGlobalTexture("_GBufferTexture0"));
 
 			HDUtils.DrawFullScreen(ctx.cmd, _ComposeMaterial, ctx.cameraColorBuffer, ctx.propertyBlock, shaderPassId: DebugProbesColor ? 1 : 0);
 		}

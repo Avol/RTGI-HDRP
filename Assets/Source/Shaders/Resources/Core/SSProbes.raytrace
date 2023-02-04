@@ -108,9 +108,9 @@ float3 LightLoop(float3 positionWS)
 		posInput.positionSS = 0;
 		float3 normalWS		= 0;
 
-		context.shadowValue = GetDirectionalShadowAttenuation(	context.shadowContext,
+		context.shadowValue = traceShadow(positionWS); /*GetDirectionalShadowAttenuation(	context.shadowContext,
 																posInput.positionSS, posInput.positionWS, normalWS,
-																light.shadowIndex, L);
+																light.shadowIndex, L);*/
 
 
 		SHADOW_TYPE shadow = EvaluateShadow_Directional(context, posInput, light, unused, normalWS);

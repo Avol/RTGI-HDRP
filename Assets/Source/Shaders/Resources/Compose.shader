@@ -36,6 +36,8 @@ Shader "FullScreen/Compose"
 	uniform sampler2D _SSProbesEncoded;
 	uniform sampler3D _SHAtlas;
 
+	TEXTURE2D_X(_GBufferTexture0);
+
 	uniform				float3		_CameraPosition;
 	uniform				float3		_CameraUp;
 	uniform				float3		_CameraRight;
@@ -45,8 +47,7 @@ Shader "FullScreen/Compose"
 	uniform				float		_CameraNear;
 	uniform				float		_CameraFar;
 
-	uniform float _Multiplier;
-	uniform float _NeighbourBlendDistance;
+	uniform				float		_Exposure;
 
 	uniform	float2		_Resolution;
 
@@ -55,6 +56,7 @@ Shader "FullScreen/Compose"
 	uniform				int			_ProbeSize;
 	uniform				float		_HarmonicsBlend;
 	uniform				int			_DebugNormals;
+
 
 
 	float2 PixelSizeInWorldSpace(float linearDepth)
@@ -242,6 +244,14 @@ Shader "FullScreen/Compose"
 		sh9Color.sh8 = tex3D(_SHAtlas, float3(positionNDC, 8 / 8.0)).rgb * 2 - 1;
 
 
+		float4 gBufferAlbedo = LOAD_TEXTURE2D_X(_GBufferTexture0, positionCS);
+		gBufferAlbedo = max(0.01, gBufferAlbedo);
+
+		float3 exposure = /*GetCurrentExposureMultiplier() * */_Exposure;
+
+		float3 radiance = calcIrradiance(pixelNormalDepth.xyz, sh9Color) * gBufferAlbedo.rgb * exposure;
+		return float4(radiance, 1);
+
 		// sample 4 directions to cover BRDF using SH9.
 		// removes tiling artifacts and blends probes better.
 		/* {
@@ -280,9 +290,9 @@ Shader "FullScreen/Compose"
 		}*/
 		////////
 
-		float3	radiance	= calcIrradiance(pixelNormalDepth.xyz, sh9Color) * _Multiplier;
-		float3	SSProbes	= tex2D(_SSProbesEncoded, positionNDC).rgb;
-		return float4(lerp(SSProbes, radiance, _HarmonicsBlend), 1);
+		//float3	radiance	= calcIrradiance(pixelNormalDepth.xyz, sh9Color) * _Multiplier;
+		//float3	SSProbes	= tex2D(_SSProbesEncoded, positionNDC).rgb;
+		//return float4(lerp(SSProbes, radiance, _HarmonicsBlend), 1);
     }
 
     ENDHLSL
