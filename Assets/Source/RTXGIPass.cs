@@ -24,7 +24,7 @@ namespace Avol.RTXGI
 		[Range(1, 16)]
 		public int RayCount = 32;
 
-		[Range(0.0f, 16.0f)]
+		[Range(0.0f, 128.0f)]
 		public float Multiplier = 1;
 
 		[Range(0.0f, 1.0f)]

@@ -228,113 +228,6 @@ Shader "FullScreen/Compose"
 			}
 		}*/
 
-
-		//float	probeNormalAngle	= dot(nNormal, normal);
-
-
-		// -------- if pixel lies in probe plane, otherwise choose other probe ------------- //
-		//float2	nTest				= d;
-		//float4  nDepthNormal		= tex2D(_DepthNormals, nTest);
-		//float3	nNormal				= nDepthNormal.xyz * 2.0f - 1.0f;
-
-
-
-		/*NormalData normalData1;
-		DecodeFromNormalBuffer(d, normalData1);
-		float3	nNormal				= normalData1.normalWS;
-		float	nDepthLog			= LoadCameraDepth(d);
-		PositionInputs posInput2	= GetPositionInput(d, _ScreenSize.zw, nDepthLog, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
-		float	nDepth				= posInput2.linearDepth;
-		float	dotVal				= dot(nNormal, normal);
-
-		//if (_DebugNormals)
-		////{
-		//	return float4(nNormal * 0.5 + 0.5, 1);
-		//}
-
-		//if (dotVal < 0.95f)
-		//	return 1;
-
-		float2	worldSpacePixelSize		= PixelSizeInWorldSpace(nDepth);
-		//float	v						= dot(normal, float3(worldSpacePixelSize.x, 0, 0));
-		//float	maxDepth				= nDepthNormal.w * v;
-
-
-		//normal *= worldSpacePixelSize.y;
-		float3	screenNormal	= worldToScreen(UNITY_MATRIX_V, normal);
-
-		float3	tangent;
-		float3	bitangent;
-
-		float3	c1 = cross(screenNormal, float3(0.0, 0.0, 1.0));
-		float3	c2 = cross(screenNormal, float3(0.0, 1.0, 0.0));
-
-		if (length(c1) > length(c2))	tangent = c1;
-		else							tangent = c2;
-
-		tangent		= normalize(tangent);
-		bitangent	= cross(screenNormal, tangent);
-		bitangent	= normalize(bitangent);
-
-
-
-		float	depthDiff		= nDepth - posInput.linearDepth;
-
-		float3	scaledNormal	= bitangent;
-		if (abs(tangent.z) > abs(bitangent.z))
-			scaledNormal = tangent;
-
-		scaledNormal *= worldSpacePixelSize.y;
-
-		//return abs(scaledNormal.z * 100);
-
-		//return scaledNormal.z;
-
-		float	biggestDist		= 10000;// abs(depthDiff);
-		float2	selectedD		= d;
-
-		bool uncertain = false;
-
-		if (abs(depthDiff) >= abs(scaledNormal.z) || dotVal < 0.95f)
-		{
-			uncertain = true;
-
-			[unroll]
-			for (int i = 0; i < 9; i++)
-			{
-				float2	nTest = d + closestPixels[i] / _Resolution * _ProbeSize;
-
-				NormalData normalData2;
-				DecodeFromNormalBuffer(nTest, normalData2);
-				float3	nNormal2			= normalData2.normalWS;
-				float	nDepthLog2			= LoadCameraDepth(nTest);
-				PositionInputs posInput3	= GetPositionInput(nTest, _ScreenSize.zw, nDepthLog2, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
-				float	nDepth2				= posInput3.linearDepth;
-
-				//float4  nDepthNormal	= tex2D(_DepthNormals, nTest);
-				//float3	nNormal			= nDepthNormal.xyz * 2.0f - 1.0f;
-
-
-				float	dotVal			= dot(nNormal2, normal);
-
-				// if normal close enough, find closest distance.
-				if (dotVal >= 0.95f)
-				{
-					//float3 probeWorldPos = worldPosFromDepth();
-
-					float dist = abs(posInput.linearDepth - nDepth2);
-					if (dist <= biggestDist)
-					{
-						biggestDist = dist;
-						selectedD	= nTest;
-					}
-				}
-			}
-		}
-
-		d = selectedD;*/
-
-
 		// -------- sample diffuse harmonics ------------- //
 
 		SH9Color sh9Color;
@@ -349,7 +242,6 @@ Shader "FullScreen/Compose"
 		sh9Color.sh8 = tex3D(_SHAtlas, float3(positionNDC, 8 / 8.0)).rgb * 2 - 1;
 
 
-		// sample sideways based on pixel offset inside probe?
 		// sample 4 directions to cover BRDF using SH9.
 		// removes tiling artifacts and blends probes better.
 		/* {
