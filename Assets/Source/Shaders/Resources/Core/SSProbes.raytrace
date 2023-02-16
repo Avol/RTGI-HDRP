@@ -58,6 +58,7 @@ uniform				int			_RayCount;
 uniform				int			_ProbeSize;
 uniform				int			_Upscale;
 uniform				float		_RayConeAngle;
+uniform				float		_MaxRayDistance;
 
 
 int traceShadow(float3 worldPos)
@@ -67,7 +68,7 @@ int traceShadow(float3 worldPos)
 	// Create the ray descriptor for this pixel
 	RayDesc rayDescriptor;
 	rayDescriptor.TMin			= 0;
-	rayDescriptor.TMax			= 100;
+	rayDescriptor.TMax			= _MaxRayDistance;
 	rayDescriptor.Origin		= worldPos;
 	rayDescriptor.Direction		= -light.forward;
 
@@ -140,7 +141,7 @@ float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay)
 		// Create the ray descriptor for this pixel
 		RayDesc rayDescriptor;
 		rayDescriptor.TMin			= 0;
-		rayDescriptor.TMax			= 100;
+		rayDescriptor.TMax			= _MaxRayDistance;
 		rayDescriptor.Direction		= jitteredOctaRay;
 		rayDescriptor.Origin		= worldPos + normal * 0.005;// + jitteredOctaRay * 0.01;
 
@@ -155,7 +156,7 @@ float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay)
 
 		float3 lightLoop	= LightLoop(hitPosition);
 
-		radiance += float4(rayIntersection.color * lightLoop, rayIntersection.distance / 100);
+		radiance += float4(rayIntersection.color * lightLoop, rayIntersection.distance / _MaxRayDistance);
 		countRays++;
 	}
 
@@ -174,13 +175,13 @@ void MyRaygenShader()
 	float2	resolution		= DispatchRaysDimensions().xy;
 
 
-	uint	seed				= initRand(dispatchIdx.x, dispatchIdx.y) + initRand(_Frame, _Frame);
+	uint	seed				= initRand(dispatchIdx.x, dispatchIdx.y);// + initRand(_Frame, _Frame);
 
-	float2	jitter			= float2(	random(dispatchIdx.xy / resolution + _Frame / 128.0),
-										random(dispatchIdx.yx / resolution + _Frame / 128.0) );
+	float2	jitter				= float2(	random(dispatchIdx.xy / resolution + _Frame / 128.0),
+											random(dispatchIdx.yx / resolution + _Frame / 128.0)	);
 	uint2	jitterUint2			= min(_ProbeSize - 1, floor(jitter * _ProbeSize));
 
-	uint2	jiterredDispatch	= (dispatchIdx.xy - dispatchIdx.xy % _ProbeSize) + jitterUint2 / _Upscale;
+	uint2	jiterredDispatch	= (dispatchIdx.xy - dispatchIdx.xy % _ProbeSize);// + jitterUint2 / _Upscale;
 	float2	screenUV			= jiterredDispatch / resolution;
 
 	float	depth				= LoadCameraDepth(jiterredDispatch);

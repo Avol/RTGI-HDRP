@@ -5,8 +5,6 @@
 
 Texture2D<float4> _SSProbes;
 
-RWTexture2D<float4> _TestMergeAll;
-
 RWTexture3D<float3> _SHAtlas;
 
 uniform int		_ProbeSize;
@@ -72,6 +70,4 @@ void SSFiltering(uint3 id : SV_DispatchThreadID)
 	_SHAtlas[uint3(id.xy, 6)] = (shOutput.sh6 * 0.5f + 0.5f);
 	_SHAtlas[uint3(id.xy, 7)] = (shOutput.sh7 * 0.5f + 0.5f);
 	_SHAtlas[uint3(id.xy, 8)] = (shOutput.sh8 * 0.5f + 0.5f);
-
-	_TestMergeAll[id.xy] = mixedColor / (_ProbeSize * _ProbeSize) * 2;
 }

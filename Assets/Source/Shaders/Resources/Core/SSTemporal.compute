@@ -1,45 +1,161 @@
-#pragma kernel SSTemporal
+#pragma kernel SSTemporalReprojection
+#pragma kernel SSSpatialReprojection
 
-Texture2D<float4> _SSProbes;
-RWTexture2D<float4> _TemporalAccumulation;
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/RenderPass/CustomPass/CustomPassCommon.hlsl"
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/NormalBuffer.hlsl"
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/Builtin/BuiltinData.hlsl"
 
-uniform float _TemporalWeight;
-uniform bool _CameraMoved;
-uniform int _ProbeSize;
-uniform int _Upscale;
+#include "../Octahedron.cginc"
 
-[numthreads(8,8,1)]
-void SSTemporal(uint3 id : SV_DispatchThreadID)
+Texture2D<float4>		_SSProbes;
+RWTexture2D<float4>		_TemporalAccumulation;
+
+
+uniform float			_TemporalWeight;
+uniform int				_ProbeSize;
+uniform int				_Upscale;
+uniform float2			_Resolution;
+
+float2 SampleMotionVectors(uint2 coords)
 {
-	static uint2 closestPixels[9] =
+	float2 motionVectorNDC;
+	DecodeMotionVector(LOAD_TEXTURE2D_X(_CameraMotionVectorsTexture, coords), motionVectorNDC);
+	return motionVectorNDC;
+}
+
+// Retrieves world space normal and linear depth.
+// @ positionCS = screen space UV coordinate.
+float4 GetNormalDepth(float2 positionCS, out float3 worldPosition)
+{
+	float4 normalDepth = 0;
+
+	// load normal
+	NormalData normalData;
+	DecodeFromNormalBuffer(positionCS, normalData);
+	normalDepth.xyz = normalData.normalWS;
+
+	// load depth
+	float			depth = LoadCameraDepth(positionCS);
+	PositionInputs	posInput = GetPositionInput(positionCS, _ScreenSize.zw, depth, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
+	normalDepth.w = posInput.linearDepth;
+
+	worldPosition = posInput.positionWS + _WorldSpaceCameraPos;
+
+	return normalDepth;
+}
+
+// is point inside texture bounds.
+uint TestOutsideTextureBounds(uint2 uv, uint2 resolution)
+{
+	if (uv.x < 0 || uv.y < 0)
+		return 0;
+	if (uv.x >= resolution.x || uv.y >= resolution.y)
+		return 0;
+	return 1;
+}
+
+static float2 closestPixels[9] =
+{
+	float2(0, 0),
+	float2(-1, 1),
+	float2(0, 1),
+	float2(1, 1),
+	float2(1, 0),
+	float2(1, -1),
+	float2(0, -1),
+	float2(-1, -1),
+	float2(-1, 0),
+};
+
+// reprojects history samples to current position.
+// TODO: reject weights that are out of screen.
+// TODO: distance plane weighting.
+float4 TemporalReprojection(float2 uv, float2 octaRay, inout float weight)
+{
+	// get probes around texel
+	int4 probePositions	= int4(floor(uv.xy), ceil(uv.xy)) * _ProbeSize + uint4(octaRay, octaRay);
+	 
+	// blend factor
+	float2 uv_frac		= frac(uv.xy);
+
+	// directional weights
+	float upWeight		= uv_frac.y;
+	float downWeight	= 1.0f - upWeight;
+	float rightWeight	= uv_frac.x;
+	float leftWeight	= 1.0f - rightWeight;
+
+	// generate weights
+	float probe0Weight = TestOutsideTextureBounds(probePositions.xy, _Resolution);
+	float probe1Weight = TestOutsideTextureBounds(probePositions.xw, _Resolution);
+	float probe2Weight = TestOutsideTextureBounds(probePositions.zy, _Resolution);
+	float probe3Weight = TestOutsideTextureBounds(probePositions.zw, _Resolution);
+
+	// avg total weight
+	weight = (probe0Weight + probe1Weight + probe2Weight + probe3Weight) * 0.25f;
+
+	// todo: calc weight somehow for interpolation from few existing probes.
+	if (weight != 1)
 	{
-		uint2(0, 0),
-		uint2(-1, 1),
-		uint2(0, 1),
-		uint2(1, 1),
-		uint2(1, 0),
-		uint2(1, -1),
-		uint2(0, -1),
-		uint2(-1, -1),
-		uint2(-1, 0),
-	};
+		weight = 0;
+		return 0;
+	}
+
+	// sample 4 probes
+	float4	probe0 = _TemporalAccumulation[probePositions.xy] * probe0Weight;	// left down
+	float4	probe1 = _TemporalAccumulation[probePositions.xw] * probe1Weight;	// left up
+	float4	probe2 = _TemporalAccumulation[probePositions.zy] * probe2Weight;	// right down
+	float4	probe3 = _TemporalAccumulation[probePositions.zw] * probe3Weight;	// right up
 
 
-	//_TemporalAccumulation[id.xy] = lerp(_TemporalAccumulation[id.xy], _SSProbes[id.xy], _CameraMoved ? 1 : _TemporalWeight);
-	//return;
+	// interpolation
+	return	lerp(lerp(probe0, probe1, uv_frac.y),
+				 lerp(probe2, probe3, uv_frac.y),
+				 uv_frac.x);
+}
 
-	float3	totalRadiance		= 0;
-	float	totalLuminance		= 0;
+
+// Temporal reprojection
+[numthreads(8,8,1)]
+void SSTemporalReprojection(uint3 id : SV_DispatchThreadID)
+{
+	uint2		octaDir				= id.xy % _ProbeSize;
+	uint2		probeCS				= id.xy - octaDir;
+	uint2		probeID				= probeCS / _ProbeSize;
+
+	float2		motionVector		= SampleMotionVectors(probeCS) * (_Resolution / _ProbeSize); // assuming probe layout fills full resolution.
+
+	float2		historyCSPosition	= probeID - motionVector;
+
+	float		historyWeight		= 0;
+	float4		historyRadiance		= TemporalReprojection(historyCSPosition, octaDir, historyWeight);
+
+
+	float		temporalWeight		= lerp(1, _TemporalWeight, historyWeight);
+
+	_TemporalAccumulation[id.xy]	= lerp(historyRadiance, _SSProbes[id.xy], temporalWeight);
+}
+
+// Spatial reprojection
+[numthreads(8, 8, 1)]
+void SSSpatialReprojection(uint3 id : SV_DispatchThreadID)
+{
+	uint2	coneID			= id.xy;
+
+	float4	radiance		= 0;
+	float	totalWeight		= 0;
+
 	for (int i = 0; i < 9; i++)
 	{
-		//float3 tDepthNormal = _SSProbes[id.xy + closestPixels[i] * _ProbeSize].rgb;
-		float4	SSProbe			= _SSProbes[id.xy + closestPixels[i] * _ProbeSize];
-		float3	radiance		= SSProbe.rgb;
-		float	distance		= SSProbe.w;
+		int2 neighbouringConeID = coneID + closestPixels[i] * _ProbeSize;
 
-		totalRadiance += radiance;
+		if (TestOutsideTextureBounds(neighbouringConeID, _Resolution) == 1)
+		{
+			radiance	+= _TemporalAccumulation[neighbouringConeID];
+			totalWeight += 1;
+		}
 	}
-	totalRadiance /= 9;
 
-	_TemporalAccumulation[id.xy] = lerp(_TemporalAccumulation[id.xy], float4(totalRadiance.rgb, 1), _CameraMoved ? 1 : _TemporalWeight);
+	radiance /= totalWeight;
+
+	_TemporalAccumulation[id.xy] = radiance;
 }

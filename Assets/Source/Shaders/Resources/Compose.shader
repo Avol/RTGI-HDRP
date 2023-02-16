@@ -33,7 +33,6 @@ Shader "FullScreen/Compose"
 	// float SampleCustomDepth(float2 uv);
 
 	uniform sampler2D _SSProbes;
-	uniform sampler2D _SSProbesEncoded;
 	uniform sampler3D _SHAtlas;
 
 	TEXTURE2D_X(_GBufferTexture0);
@@ -54,7 +53,6 @@ Shader "FullScreen/Compose"
 	uniform int			_Debug;
 
 	uniform				int			_ProbeSize;
-	uniform				float		_HarmonicsBlend;
 	uniform				int			_DebugNormals;
 
 
@@ -286,13 +284,8 @@ Shader "FullScreen/Compose"
 			float3	radianceFinal	= min(1, radiance * _Multiplier);
 			float3	SSProbes		= tex2D(_SSProbesEncoded, positionNDC).rgb;
 
-			return float4(lerp(SSProbes, radianceFinal, _HarmonicsBlend), 1);
+			return float4(SSProbes, 1);
 		}*/
-		////////
-
-		//float3	radiance	= calcIrradiance(pixelNormalDepth.xyz, sh9Color) * _Multiplier;
-		//float3	SSProbes	= tex2D(_SSProbesEncoded, positionNDC).rgb;
-		//return float4(lerp(SSProbes, radiance, _HarmonicsBlend), 1);
     }
 
     ENDHLSL
