@@ -14,7 +14,9 @@ RWTexture2D<float4>		_TemporalAccumulation;
 uniform float			_TemporalWeight;
 uniform int				_ProbeSize;
 uniform int				_Upscale;
-uniform float2			_Resolution;
+
+uniform float2			_ProbeLayoutResolution;
+uniform float2			_ScreenResolution;
 
 float2 SampleMotionVectors(uint2 coords)
 {
@@ -85,10 +87,10 @@ float4 TemporalReprojection(float2 uv, float2 octaRay, inout float weight)
 	float leftWeight	= 1.0f - rightWeight;
 
 	// generate weights
-	float probe0Weight = TestOutsideTextureBounds(probePositions.xy, _Resolution);
-	float probe1Weight = TestOutsideTextureBounds(probePositions.xw, _Resolution);
-	float probe2Weight = TestOutsideTextureBounds(probePositions.zy, _Resolution);
-	float probe3Weight = TestOutsideTextureBounds(probePositions.zw, _Resolution);
+	float probe0Weight = TestOutsideTextureBounds(probePositions.xy, _ProbeLayoutResolution);
+	float probe1Weight = TestOutsideTextureBounds(probePositions.xw, _ProbeLayoutResolution);
+	float probe2Weight = TestOutsideTextureBounds(probePositions.zy, _ProbeLayoutResolution);
+	float probe3Weight = TestOutsideTextureBounds(probePositions.zw, _ProbeLayoutResolution);
 
 	// avg total weight
 	weight = (probe0Weight + probe1Weight + probe2Weight + probe3Weight) * 0.25f;
@@ -122,7 +124,7 @@ void SSTemporalReprojection(uint3 id : SV_DispatchThreadID)
 	uint2		probeCS				= id.xy - octaDir;
 	uint2		probeID				= probeCS / _ProbeSize;
 
-	float2		motionVector		= SampleMotionVectors(probeCS) * (_Resolution / _ProbeSize); // assuming probe layout fills full resolution.
+	float2		motionVector		= SampleMotionVectors(probeCS) * (_ScreenResolution / _ProbeSize); // assuming probe layout fills full resolution.
 
 	float2		historyCSPosition	= probeID - motionVector;
 
@@ -148,7 +150,7 @@ void SSSpatialReprojection(uint3 id : SV_DispatchThreadID)
 	{
 		int2 neighbouringConeID = coneID + closestPixels[i] * _ProbeSize;
 
-		if (TestOutsideTextureBounds(neighbouringConeID, _Resolution) == 1)
+		if (TestOutsideTextureBounds(neighbouringConeID, _ProbeLayoutResolution) == 1)
 		{
 			radiance	+= _TemporalAccumulation[neighbouringConeID];
 			totalWeight += 1;

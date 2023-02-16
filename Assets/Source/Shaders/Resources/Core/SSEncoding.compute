@@ -8,7 +8,6 @@ Texture2D<float4> _SSProbes;
 RWTexture3D<float3> _SHAtlas;
 
 uniform int		_ProbeSize;
-uniform float2	_Resolution;
 
 float luminance(float3 color)
 {

@@ -59,6 +59,7 @@ uniform				int			_ProbeSize;
 uniform				int			_Upscale;
 uniform				float		_RayConeAngle;
 uniform				float		_MaxRayDistance;
+uniform				float2		_ScreenResolution;
 
 
 int traceShadow(float3 worldPos)
@@ -174,15 +175,14 @@ void MyRaygenShader()
 	uint2	dispatchIdx		= DispatchRaysIndex().xy;
 	float2	resolution		= DispatchRaysDimensions().xy;
 
-
-	uint	seed				= initRand(dispatchIdx.x, dispatchIdx.y);// + initRand(_Frame, _Frame);
+	uint	seed				= initRand(dispatchIdx.x, dispatchIdx.y) + initRand(_Frame, _Frame);
 
 	float2	jitter				= float2(	random(dispatchIdx.xy / resolution + _Frame / 128.0),
 											random(dispatchIdx.yx / resolution + _Frame / 128.0)	);
 	uint2	jitterUint2			= min(_ProbeSize - 1, floor(jitter * _ProbeSize));
 
-	uint2	jiterredDispatch	= (dispatchIdx.xy - dispatchIdx.xy % _ProbeSize);// + jitterUint2 / _Upscale;
-	float2	screenUV			= jiterredDispatch / resolution;
+	uint2	jiterredDispatch	= (dispatchIdx.xy - dispatchIdx.xy % _ProbeSize) + jitterUint2 / _Upscale;
+			jiterredDispatch	= min(jiterredDispatch, _ScreenResolution - 1);	// clamp jiterred position
 
 	float	depth				= LoadCameraDepth(jiterredDispatch);
 	
