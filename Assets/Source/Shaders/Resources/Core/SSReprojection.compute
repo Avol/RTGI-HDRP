@@ -1,0 +1,272 @@
+#pragma kernel SSTemporalReprojection
+#pragma kernel SSSpatialReprojection
+
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/RenderPass/CustomPass/CustomPassCommon.hlsl"
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/NormalBuffer.hlsl"
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/Builtin/BuiltinData.hlsl"
+
+#include "../Octahedron.cginc"
+
+Texture2D<float4>		_HistoryNormalDepth;
+uniform float4x4		_HistoryIVPMatrix;
+
+Texture2D<float4>		_SSProbes;
+RWTexture2D<float4>		_TemporalAccumulation;
+RWTexture2D<float4>		_SpatialAccumulation;
+
+uniform float			_TemporalWeight;
+uniform int				_ProbeSize;
+uniform int				_Upscale;
+uniform float			_MaxRayDistance;
+uniform float			_RayConeAngle;
+
+uniform float2			_ProbeLayoutResolution;
+uniform float2			_ScreenResolution;
+uniform int				_DistancePlaneWeighting;
+uniform int				_AngleWeighting;
+
+static float2 closestPixels[9] =
+{
+	float2(0, 0),
+	float2(-1, 1),
+	float2(0, 1),
+	float2(1, 1),
+	float2(1, 0),
+	float2(1, -1),
+	float2(0, -1),
+	float2(-1, -1),
+	float2(-1, 0),
+};
+
+
+
+
+//
+//
+float2 SampleMotionVectors(uint2 coords)
+{
+	float2 motionVectorNDC;
+	DecodeMotionVector(LOAD_TEXTURE2D_X(_CameraMotionVectorsTexture, coords), motionVectorNDC);
+	return motionVectorNDC;
+}
+
+// Retrieves world space normal and linear depth.
+// @ positionCS = screen space UV coordinate.
+float4 GetNormalDepth(float2 positionCS, out float3 worldPosition)
+{
+	float4 normalDepth = 0;
+
+	// load normal
+	NormalData normalData;
+	DecodeFromNormalBuffer(positionCS, normalData);
+	normalDepth.xyz = normalData.normalWS;
+
+
+	// load depth
+	float			depth = LoadCameraDepth(positionCS);
+	PositionInputs	posInput = GetPositionInput(positionCS, _ScreenSize.zw, depth, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
+	normalDepth.w = posInput.linearDepth;
+
+	worldPosition = posInput.positionWS + _WorldSpaceCameraPos;
+
+	return normalDepth;
+}
+
+//
+//
+float3 GetHistoryWorldPosition(uint2 positionCS)
+{
+	float	depth			= _HistoryNormalDepth[positionCS].w;
+	float3	positionWS		= ComputeWorldSpacePosition(positionCS / _ScreenResolution, depth, _HistoryIVPMatrix);
+	return	positionWS;
+
+	//float3	worldPosition	= 0;
+	//float4	normalDepth		= GetNormalDepth(positionCS, worldPosition);
+
+	//return worldPosition;
+}
+
+
+// is point inside texture bounds.
+uint TestOutsideTextureBounds(uint2 uv, uint2 resolution)
+{
+	if (uv.x < 0 || uv.y < 0)
+		return 0;
+	if (uv.x >= resolution.x || uv.y >= resolution.y)
+		return 0;
+	return 1;
+}
+
+//  Compare probe vs pixel distance and normal.
+//
+int DistancePlaneWeighting(float3 fromNormal, float3 fromWorldPosition, float fromDepth, float3 toWorldPosition)
+{
+	float4	probeScenePlane				= float4(fromNormal, dot(fromWorldPosition, fromNormal));
+	float	planeDistance				= abs(dot(float4(toWorldPosition, -1), probeScenePlane));
+	float	relativeDepthDifference		= planeDistance / fromDepth;
+
+	return exp2(-10000.0f * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
+}
+
+// reprojects history samples to current position.
+// TODO: reject weights that are out of screen.
+// TODO: distance plane weighting.
+float4 TemporalReprojection(uint2 newCSPosition, float2 historyCSPosition, float4 newRadiance, float2 octaRayID, inout float weight)
+{
+	float3	octaRay = UVtoOctahedron((octaRayID + 0.5) / _ProbeSize);
+
+	// get probes around texel
+	int4 probePositionsCS	= int4(floor(historyCSPosition.xy), ceil(historyCSPosition.xy)) * _ProbeSize;
+	int4 probePositionsOcta	= int4(probePositionsCS + uint4(octaRayID, octaRayID));
+	 
+	// blend factor
+	float2 uv_frac		= frac(historyCSPosition.xy);
+
+
+	// sample 4 probes
+	float4	probe0 = _TemporalAccumulation[probePositionsOcta.xy];	// left down
+	float4	probe1 = _TemporalAccumulation[probePositionsOcta.xw];	// left up
+	float4	probe2 = _TemporalAccumulation[probePositionsOcta.zy];	// right down
+	float4	probe3 = _TemporalAccumulation[probePositionsOcta.zw];	// right up
+
+	// get this pixel world stuff.
+	float3	worldPosition			= 0;
+	float4	normalDepth				= GetNormalDepth(newCSPosition, worldPosition);
+	float3  rayHitPosition			= worldPosition + newRadiance.w * _MaxRayDistance * octaRay;
+
+	// ignore if new radiance direction has no hit.
+	if (newRadiance.w == 0)
+	{
+		weight = 0;
+		return 0;
+	}
+
+	// get weights
+	float3	probe0WorldPosition		= GetHistoryWorldPosition(probePositionsCS.xy);
+	float	angle0					= dot(octaRay, normalize(rayHitPosition - probe0WorldPosition));
+	float	angleWeight0			= angle0 >= _RayConeAngle ? 1 : 0;
+
+	float	outOfBounds0			= TestOutsideTextureBounds(probePositionsCS.xy, _ProbeLayoutResolution);
+	float	probe0Weight			= DistancePlaneWeighting(normalDepth.xyz, worldPosition, normalDepth.w, probe0WorldPosition) * angleWeight0 * outOfBounds0;
+
+	float3	probe1WorldPosition		= GetHistoryWorldPosition(probePositionsCS.xw);
+	float	angle1					= dot(octaRay, normalize(rayHitPosition - probe1WorldPosition));
+	float	angleWeight1			= angle1 >= _RayConeAngle ? 1 : 0;
+	float	outOfBounds1			= TestOutsideTextureBounds(probePositionsCS.xw, _ProbeLayoutResolution);
+	float	probe1Weight			= DistancePlaneWeighting(normalDepth.xyz, worldPosition, normalDepth.w, probe1WorldPosition) * angleWeight1 * outOfBounds1;
+
+	float3	probe2WorldPosition		= GetHistoryWorldPosition(probePositionsCS.zy);
+	float	angle2					= dot(octaRay, normalize(rayHitPosition - probe2WorldPosition));
+	float	angleWeight2			= angle2 >= _RayConeAngle ? 1 : 0;
+	float	outOfBounds2			= TestOutsideTextureBounds(probePositionsCS.zy, _ProbeLayoutResolution);
+	float	probe2Weight			= DistancePlaneWeighting(normalDepth.xyz, worldPosition, normalDepth.w, probe2WorldPosition) * angleWeight2 * outOfBounds2;
+
+	float3	probe3WorldPosition		= GetHistoryWorldPosition(probePositionsCS.zw);
+	float	angle3					= dot(octaRay, normalize(rayHitPosition - probe3WorldPosition));
+	float	angleWeight3			= angle3 >= _RayConeAngle ? 1 : 0;
+	float	outOfBounds3			= TestOutsideTextureBounds(probePositionsCS.zw, _ProbeLayoutResolution);
+	float	probe3Weight			= DistancePlaneWeighting(normalDepth.xyz, worldPosition, normalDepth.w, probe3WorldPosition) * angleWeight3 * outOfBounds3;
+
+
+	weight = (probe0Weight + probe1Weight + probe2Weight + probe3Weight) * 0.25f;
+	//return (probe0 * probe0Weight + probe1 * probe1Weight + probe2 * probe2Weight + probe3 * probe3Weight) * 0.25f;
+
+
+
+	// bilinear interpolation
+	//weight = 1;
+	return	lerp(lerp(probe0 * probe0Weight, probe1 * probe1Weight, uv_frac.y),
+				 lerp(probe2 * probe2Weight, probe3 * probe3Weight, uv_frac.y),
+				 uv_frac.x);
+}
+
+
+// Temporal reprojection
+[numthreads(8,8,1)]
+void SSTemporalReprojection(uint3 id : SV_DispatchThreadID)
+{
+	uint2		octaDir				= id.xy % _ProbeSize;
+	uint2		probeCS				= id.xy - octaDir;
+
+	uint2		probeID				= probeCS / _ProbeSize;
+	float4		newRadiance			= _SSProbes[id.xy];
+
+	float2		motionVector		= SampleMotionVectors(probeCS) * (_ScreenResolution / _ProbeSize); // assuming probe layout fills full resolution.
+
+	float2		historyCSPosition	= probeID - motionVector;
+	float		historyWeight		= 0;
+	float4		historyRadiance		= TemporalReprojection(probeCS, historyCSPosition, newRadiance, octaDir, historyWeight);
+
+
+	//_TemporalAccumulation[id.xy]	= lerp(_TemporalAccumulation[id.xy], newRadiance, _TemporalWeight);
+	//return;
+
+	float		temporalWeight		= lerp(1, _TemporalWeight, historyWeight);
+	if (historyWeight != 1)
+	{
+		//_TemporalAccumulation[id.xy] = float4(1, 0, 0, 1);
+		_TemporalAccumulation[id.xy] = newRadiance;
+		return;
+	}
+
+	_TemporalAccumulation[id.xy]	= lerp(float4(historyRadiance.rgb, newRadiance.w), newRadiance, temporalWeight);
+}
+
+// Spatial reprojection
+[numthreads(8, 8, 1)]
+void SSSpatialReprojection(uint3 id : SV_DispatchThreadID)
+{
+	uint2	coneID			= id.xy;
+	uint2	probeCS			= id.xy - id.xy % _ProbeSize;
+
+	float3	worldPosition		= 0;
+	float4	probeNormalDepth	= GetNormalDepth(probeCS, worldPosition);
+
+	float4	newRadiance			= _TemporalAccumulation[coneID];
+	float3	octaRay				= UVtoOctahedron((id.xy % _ProbeSize + 0.5) / _ProbeSize);
+	float3  rayHitPosition		= worldPosition + newRadiance.w * _MaxRayDistance * octaRay;
+
+
+	float4	spatialRadiance		= newRadiance;
+	float	spatialWeight		= 1;
+
+
+	for (int i = 1; i < 9; i++)
+	{
+		int2	neighbouringConeID	= coneID + closestPixels[i] * _ProbeSize;
+		
+		if (TestOutsideTextureBounds(neighbouringConeID, _ProbeLayoutResolution) == 1)
+		{
+			uint2	neighbourProbeCS					= probeCS + closestPixels[i] * _ProbeSize;
+
+			float4	neighbourHistoryRadiance			= _TemporalAccumulation[neighbouringConeID];
+
+			float3	neighbourWorldPosition				= 0;
+			float4	neighbourProbeNormalDepth			= GetNormalDepth(neighbourProbeCS, neighbourWorldPosition);
+			//float3  neighbourRayHitPosition				= neighbourWorldPosition + octaRay * neighbourHistoryRadiance.w * _MaxRayDistance;
+
+			if (_AngleWeighting)
+			{
+				float3	dirHitToNeighbourWorld = rayHitPosition - neighbourWorldPosition;
+
+				if (length(dirHitToNeighbourWorld) < newRadiance.w * _MaxRayDistance)	// ray dist is larger than neighbour hit. not sure if really neccesary, don't see leaking.
+				{
+					float	angle = dot(octaRay, normalize(dirHitToNeighbourWorld));	// angle towards neighbour hit.
+					float	angleWeight = angle >= _RayConeAngle ? 1 : 0;
+
+					spatialRadiance += neighbourHistoryRadiance * angleWeight;
+					spatialWeight += angleWeight;
+				}
+			}
+			else
+			{
+				spatialRadiance += neighbourHistoryRadiance;
+				spatialWeight += 1;
+			}
+		}
+	}
+
+	spatialRadiance.xyz /= spatialWeight;
+
+	_SpatialAccumulation[id.xy] = float4(spatialRadiance.rgb, newRadiance.w);
+}

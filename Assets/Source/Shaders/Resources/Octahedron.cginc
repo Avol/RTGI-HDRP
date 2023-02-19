@@ -16,11 +16,13 @@ float3 UVtoOctahedron(float2 uv)
 			* float2(1.0f - absolute.y, 1.0f - absolute.x);
 	}
 
-	return position;
+	return normalize(position);
 }
 
 float2 OctahedronUV(float3 direction) 
 {
+	direction = normalize(direction);
+
 	float3 octant = sign(direction);
 
 	// Scale the vector so |x| + |y| + |z| = 1 (surface of octahedron).

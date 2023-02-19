@@ -1408,7 +1408,7 @@ Shader "HDRP/Lit DXR"
 
 				rayPayload.color = bsdfData.diffuseColor;
 			}
-			 
+			  
 			ENDHLSL
 		}
     }

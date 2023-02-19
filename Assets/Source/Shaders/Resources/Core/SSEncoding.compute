@@ -5,7 +5,9 @@
 
 Texture2D<float4> _SSProbes;
 
-RWTexture3D<float3> _SHAtlas;
+RWTexture3D<float> _SHAtlasR;
+RWTexture3D<float> _SHAtlasG;
+RWTexture3D<float> _SHAtlasB;
 
 uniform int		_ProbeSize;
 
@@ -60,13 +62,44 @@ void SSFiltering(uint3 id : SV_DispatchThreadID)
 	shOutput.sh7 /= max(1, weightSum);
 	shOutput.sh8 /= max(1, weightSum);
 
-	_SHAtlas[uint3(id.xy, 0)] = (shOutput.sh0 * 0.5f + 0.5f);
-	_SHAtlas[uint3(id.xy, 1)] = (shOutput.sh1 * 0.5f + 0.5f);
-	_SHAtlas[uint3(id.xy, 2)] = (shOutput.sh2 * 0.5f + 0.5f);
-	_SHAtlas[uint3(id.xy, 3)] = (shOutput.sh3 * 0.5f + 0.5f);
-	_SHAtlas[uint3(id.xy, 4)] = (shOutput.sh4 * 0.5f + 0.5f);
-	_SHAtlas[uint3(id.xy, 5)] = (shOutput.sh5 * 0.5f + 0.5f);
-	_SHAtlas[uint3(id.xy, 6)] = (shOutput.sh6 * 0.5f + 0.5f);
-	_SHAtlas[uint3(id.xy, 7)] = (shOutput.sh7 * 0.5f + 0.5f);
-	_SHAtlas[uint3(id.xy, 8)] = (shOutput.sh8 * 0.5f + 0.5f);
+	float3 coeff0 = (shOutput.sh0 * 0.5f + 0.5f);
+	float3 coeff1 = (shOutput.sh1 * 0.5f + 0.5f);
+	float3 coeff2 = (shOutput.sh2 * 0.5f + 0.5f);
+	float3 coeff3 = (shOutput.sh3 * 0.5f + 0.5f);
+	float3 coeff4 = (shOutput.sh4 * 0.5f + 0.5f);
+	float3 coeff5 = (shOutput.sh5 * 0.5f + 0.5f);
+	float3 coeff6 = (shOutput.sh6 * 0.5f + 0.5f);
+	float3 coeff7 = (shOutput.sh7 * 0.5f + 0.5f);
+	float3 coeff8 = (shOutput.sh8 * 0.5f + 0.5f);
+
+	_SHAtlasR[uint3(id.xy, 0)] = coeff0.r;
+	_SHAtlasR[uint3(id.xy, 1)] = coeff1.r;
+	_SHAtlasR[uint3(id.xy, 2)] = coeff2.r;
+	_SHAtlasR[uint3(id.xy, 3)] = coeff3.r;
+	_SHAtlasR[uint3(id.xy, 4)] = coeff4.r;
+	_SHAtlasR[uint3(id.xy, 5)] = coeff5.r;
+	_SHAtlasR[uint3(id.xy, 6)] = coeff6.r;
+	_SHAtlasR[uint3(id.xy, 7)] = coeff7.r;
+	_SHAtlasR[uint3(id.xy, 8)] = coeff8.r;
+
+
+	_SHAtlasG[uint3(id.xy, 0)] = coeff0.g;
+	_SHAtlasG[uint3(id.xy, 1)] = coeff1.g;
+	_SHAtlasG[uint3(id.xy, 2)] = coeff2.g;
+	_SHAtlasG[uint3(id.xy, 3)] = coeff3.g;
+	_SHAtlasG[uint3(id.xy, 4)] = coeff4.g;
+	_SHAtlasG[uint3(id.xy, 5)] = coeff5.g;
+	_SHAtlasG[uint3(id.xy, 6)] = coeff6.g;
+	_SHAtlasG[uint3(id.xy, 7)] = coeff7.g;
+	_SHAtlasG[uint3(id.xy, 8)] = coeff8.g;
+
+	_SHAtlasB[uint3(id.xy, 0)] = coeff0.b;
+	_SHAtlasB[uint3(id.xy, 1)] = coeff1.b;
+	_SHAtlasB[uint3(id.xy, 2)] = coeff2.b;
+	_SHAtlasB[uint3(id.xy, 3)] = coeff3.b;
+	_SHAtlasB[uint3(id.xy, 4)] = coeff4.b;
+	_SHAtlasB[uint3(id.xy, 5)] = coeff5.b;
+	_SHAtlasB[uint3(id.xy, 6)] = coeff6.b;
+	_SHAtlasB[uint3(id.xy, 7)] = coeff7.b;
+	_SHAtlasB[uint3(id.xy, 8)] = coeff8.b;
 }

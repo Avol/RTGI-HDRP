@@ -60,6 +60,8 @@ uniform				int			_Upscale;
 uniform				float		_RayConeAngle;
 uniform				float		_MaxRayDistance;
 uniform				float2		_ScreenResolution;
+uniform				float		_BounceDistance;
+uniform				float		_TemporalWeight;
 
 
 int traceShadow(float3 worldPos)
@@ -153,11 +155,16 @@ float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay)
 
 		TraceRay(_RaytracingAccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, RAYTRACING_OPAQUE_FLAG, 0, 1, 0, rayDescriptor, rayIntersection);
 
+		if (rayIntersection.distance < 0.01)
+			continue;
+
 		float3 hitPosition	= worldPos + jitteredOctaRay * (rayIntersection.distance - 0.01);
 
 		float3 lightLoop	= LightLoop(hitPosition);
 
-		radiance += float4(rayIntersection.color * lightLoop, rayIntersection.distance / _MaxRayDistance);
+		float distanceWeight = 1.0 - (rayIntersection.distance) / _MaxRayDistance;
+
+		radiance += float4(rayIntersection.color * lightLoop * distanceWeight, rayIntersection.distance / _MaxRayDistance);
 		countRays++;
 	}
 
@@ -175,14 +182,15 @@ void MyRaygenShader()
 	uint2	dispatchIdx		= DispatchRaysIndex().xy;
 	float2	resolution		= DispatchRaysDimensions().xy;
 
-	uint	seed				= initRand(dispatchIdx.x, dispatchIdx.y) + initRand(_Frame, _Frame);
+	uint	seed			= initRand(dispatchIdx.x, dispatchIdx.y) + initRand(_Frame, _Frame);
 
-	float2	jitter				= float2(	random(dispatchIdx.xy / resolution + _Frame / 128.0),
-											random(dispatchIdx.yx / resolution + _Frame / 128.0)	);
+	// TODO: jitter only if lies in same distance plane, otherwise reuse same location.
+	float2	jitter				= float2(	random(dispatchIdx.xy / resolution + _Frame * _TemporalWeight),
+											random(dispatchIdx.yx / resolution + _Frame * _TemporalWeight)	);
 	uint2	jitterUint2			= min(_ProbeSize - 1, floor(jitter * _ProbeSize));
 
-	uint2	jiterredDispatch	= (dispatchIdx.xy - dispatchIdx.xy % _ProbeSize) + jitterUint2 / _Upscale;
-			jiterredDispatch	= min(jiterredDispatch, _ScreenResolution - 1);	// clamp jiterred position
+	uint2	jiterredDispatch	= (dispatchIdx.xy - dispatchIdx.xy % _ProbeSize);// + jitterUint2 / _Upscale;
+			jiterredDispatch	= min(jiterredDispatch, _ScreenResolution - 1);	// clamp jiterred position to screen resolution
 
 	float	depth				= LoadCameraDepth(jiterredDispatch);
 	
@@ -193,8 +201,7 @@ void MyRaygenShader()
 	// normal
 	NormalData normalData0;
 	DecodeFromNormalBuffer(jiterredDispatch, normalData0);
-	float3	normal				= normalData0.normalWS;
-
+	float3	normal		= normalData0.normalWS;
 
 	// calculate octahedral ray direction.
 	float2	octaUV		= dispatchIdx.xy % _ProbeSize;
