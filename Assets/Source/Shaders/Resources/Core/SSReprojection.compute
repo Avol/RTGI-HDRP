@@ -38,6 +38,14 @@ static float2 closestPixels[9] =
 	float2(-1, 0),
 };
 
+static float2 sidePixels[5] =
+{
+	float2(0, 0),
+	float2(-1, 0),
+	float2(0, 1),
+	float2(0, -1),
+	float2(1, 0),
+};
 
 
 
@@ -105,7 +113,7 @@ int DistancePlaneWeighting(float3 fromNormal, float3 fromWorldPosition, float fr
 	float	planeDistance				= abs(dot(float4(toWorldPosition, -1), probeScenePlane));
 	float	relativeDepthDifference		= planeDistance / fromDepth;
 
-	return exp2(-10000.0f * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
+	return exp2(-1000000 * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
 }
 
 // reprojects history samples to current position.
@@ -251,11 +259,13 @@ void SSSpatialReprojection(uint3 id : SV_DispatchThreadID)
 
 				if (length(dirHitToNeighbourWorld) < newRadiance.w * _MaxRayDistance)	// ray dist is larger than neighbour hit. not sure if really neccesary, don't see leaking.
 				{
-					float	angle = dot(octaRay, normalize(dirHitToNeighbourWorld));	// angle towards neighbour hit.
-					float	angleWeight = angle >= _RayConeAngle ? 1 : 0;
+					float	angle			= dot(octaRay, normalize(dirHitToNeighbourWorld));	// angle towards neighbour hit.
+					float	angleWeight		= angle >= _RayConeAngle ? 1 : 0;
+					float	distancePlane	= DistancePlaneWeighting(probeNormalDepth.xyz, worldPosition, probeNormalDepth.w, neighbourWorldPosition);
+					float	totalWeight		= angleWeight * distancePlane;
 
-					spatialRadiance += neighbourHistoryRadiance * angleWeight;
-					spatialWeight += angleWeight;
+					spatialRadiance		+= neighbourHistoryRadiance * totalWeight;
+					spatialWeight		+= totalWeight;
 				}
 			}
 			else

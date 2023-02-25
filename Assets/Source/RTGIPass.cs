@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.Rendering.HighDefinition;
 using UnityEngine.Rendering;
 using UnityEditor.Build;
+using System;
 
 namespace Avol.RTGI
 {
@@ -29,9 +30,11 @@ namespace Avol.RTGI
 		public	float	TemporalWeight = 0.5f;
 
 		[Header("Debug Filters")]
+		public bool		TraceJitter							= true;
 		public bool		TemporalFilter						= true;
 		public bool		SpatialFilter						= true;
 		public bool		ReuseTemporalAndSpatialHistory		= true;
+		public bool		ImportanceSampling					= true;
 
 		[Header("Debug Distance Plane Weighting")]
 		public bool		DistancePlaneWeightingReprojection	= true;
@@ -45,9 +48,10 @@ namespace Avol.RTGI
 		[Header("Debug Probes")]
 		public	RenderTexture	_HistoryNormalDepth;
 
-		public	RenderTexture	_SSProbes;
+		public	RenderTexture	_SSProbesRadiance;
 		public	RenderTexture	_SSProbesReprojected;
 		public	RenderTexture	_SSProbesReprojected2;
+		public	RenderTexture	_SSProbesLightingPDF;
 
 		public	RenderTexture	_SSProbesSHAtlasR;
 		public	RenderTexture	_SSProbesSHAtlasG;
@@ -64,6 +68,7 @@ namespace Avol.RTGI
 
 		private ComputeShader											_SSEncodingShader;
 		private ComputeShader											_SSTemporalShader;
+		private ComputeShader											_SSImportanceSamplingShader;
 
 		private Shader													_CopyNormalDepthShader;
 		private Material												_CopyNormalDepthMaterial;
@@ -119,17 +124,15 @@ namespace Avol.RTGI
 			Vector2Int probeLayoutResolution = new Vector2Int(Screen.width + (x != 0 ? ProbeSize - x : 0),
 															  Screen.height + (y != 0 ? ProbeSize - y : 0));
 
-			
 			_HistoryNormalDepth									= new RenderTexture(Screen.width, Screen.height, 1, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Default);
 			_HistoryNormalDepth.enableRandomWrite				= true;
 			_HistoryNormalDepth.filterMode						= FilterMode.Point;
 			_HistoryNormalDepth.Create();
 
-
-			_SSProbes											= new RenderTexture(probeLayoutResolution.x, probeLayoutResolution.y, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Default);
-			_SSProbes.enableRandomWrite							= true;
-			_SSProbes.filterMode								= FilterMode.Point;
-			_SSProbes.Create();
+			_SSProbesRadiance									= new RenderTexture(probeLayoutResolution.x, probeLayoutResolution.y, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Default);
+			_SSProbesRadiance.enableRandomWrite					= true;
+			_SSProbesRadiance.filterMode						= FilterMode.Point;
+			_SSProbesRadiance.Create();
 
 			_SSProbesReprojected								= new RenderTexture(probeLayoutResolution.x, probeLayoutResolution.y, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Default);
 			_SSProbesReprojected.enableRandomWrite				= true;
@@ -140,6 +143,12 @@ namespace Avol.RTGI
 			_SSProbesReprojected2.enableRandomWrite				= true;
 			_SSProbesReprojected2.filterMode					= FilterMode.Point;
 			_SSProbesReprojected2.Create();
+
+			_SSProbesLightingPDF								= new RenderTexture(probeLayoutResolution.x, probeLayoutResolution.y, 0, RenderTextureFormat.RHalf, RenderTextureReadWrite.Default);
+			_SSProbesLightingPDF.enableRandomWrite				= true;
+			_SSProbesLightingPDF.filterMode						= FilterMode.Point;
+			_SSProbesLightingPDF.Create();
+			
 
 			_SSProbesSHAtlasR									= new RenderTexture(probeLayoutResolution.x / ProbeSize, probeLayoutResolution.y / ProbeSize, 0, RenderTextureFormat.RFloat, RenderTextureReadWrite.Default);
 			_SSProbesSHAtlasR.volumeDepth						= 9;
@@ -170,8 +179,9 @@ namespace Avol.RTGI
 			_SSProbesShader.SetShaderPass("RTXIntersection");
 			_SSProbesShader.SetAccelerationStructure("_RaytracingAccelerationStructure", _RTStructure);
 
-			_SSTemporalShader			= Resources.Load<ComputeShader>("Core/SSReprojection");
-			_SSEncodingShader			= Resources.Load<ComputeShader>("Core/SSEncoding");
+			_SSTemporalShader				= Resources.Load<ComputeShader>("Core/SSReprojection");
+			_SSEncodingShader				= Resources.Load<ComputeShader>("Core/SSEncoding");
+			_SSImportanceSamplingShader		= Resources.Load<ComputeShader>("Core/SSImportanceSampling");
 
 			_ComposeShader				= Resources.Load<Shader>("Compose");
 			_ComposeMaterial			= new Material(_ComposeShader);
@@ -183,6 +193,9 @@ namespace Avol.RTGI
 
 		protected override void Execute(CustomPassContext ctx)
 		{
+			if (ImportanceSampling)
+				_SSImportanceSampling(ctx);
+
 			_SSProbesGatherPass(ctx);
 
 			if (TemporalFilter)
@@ -195,6 +208,7 @@ namespace Avol.RTGI
 			_ComposePass(ctx);
 
 			_StoreHistoryNormalDepth(ctx);
+			
 
 			_HistoryIPVMatrix = (GL.GetGPUProjectionMatrix(ctx.hdCamera.camera.projectionMatrix, true) * ctx.hdCamera.camera.worldToCameraMatrix).inverse;
 
@@ -219,17 +233,35 @@ namespace Avol.RTGI
 
 			_RTStructure.Release();
 
-			_SSProbes.Release();
+			_HistoryNormalDepth.Release();
+
+			_SSProbesRadiance.Release();
 			_SSProbesReprojected.Release();
 			_SSProbesReprojected2.Release();
+			_SSProbesLightingPDF.Release();
 
 			_SSProbesSHAtlasR.Release();
 			_SSProbesSHAtlasG.Release();
 			_SSProbesSHAtlasB.Release();
 
-			_SSProbes			= null;
+			_HistoryNormalDepth.DiscardContents();
+
+			_SSProbesRadiance.DiscardContents();
+			_SSProbesReprojected.DiscardContents();
+			_SSProbesReprojected2.DiscardContents();
+			_SSProbesLightingPDF.DiscardContents();
+
+			_SSProbesSHAtlasR.DiscardContents();
+			_SSProbesSHAtlasG.DiscardContents();
+			_SSProbesSHAtlasB.DiscardContents();
+
+
+			_HistoryNormalDepth		= null;
+
+			_SSProbesRadiance		= null;
 			_SSProbesReprojected	= null;
 			_SSProbesReprojected2	= null;
+			_SSProbesLightingPDF	= null;
 
 			_SSProbesSHAtlasR	= null;
 			_SSProbesSHAtlasG	= null;
@@ -245,25 +277,29 @@ namespace Avol.RTGI
 
 		private void _SSProbesGatherPass(CustomPassContext ctx)
 		{
-			_SSProbesShader.SetTexture("_SSProbes", _SSProbes);
+			_SSProbesShader.SetTexture("_SSProbes", _SSProbesRadiance);
+			_SSProbesShader.SetTexture("_SSProbesLightingPDF", _SSProbesLightingPDF);
+			_SSProbesShader.SetBool("_ImportanceSampling", ImportanceSampling);
+			
 			_SSProbesShader.SetInt("_Frame", Frame);
 			_SSProbesShader.SetInt("_RayCount", RayCount);
 			_SSProbesShader.SetInt("_ProbeSize", ProbeSize);
 			_SSProbesShader.SetInt("_Upscale", Upscale);
 			_SSProbesShader.SetFloat("_RayConeAngle", 2.0f / ProbeSize);
 			_SSProbesShader.SetFloat("_MaxRayDistance", MaxRayDistance);
+			_SSProbesShader.SetBool("_TraceJitter", TraceJitter);
 			_SSProbesShader.SetVector("_ScreenResolution", new Vector2(ctx.hdCamera.actualWidth, ctx.hdCamera.actualHeight));
 			_SSProbesShader.SetFloat("_BounceDistance", BounceDistance);
 			_SSProbesShader.SetFloat("_TemporalWeight", TemporalWeight);
 
-			_SSProbesShader.Dispatch("MyRaygenShader", _SSProbes.width, _SSProbes.height, 1, ctx.hdCamera.camera);
+			_SSProbesShader.Dispatch("MyRaygenShader", _SSProbesRadiance.width, _SSProbesRadiance.height, 1, ctx.hdCamera.camera);
 			//ctx.cmd.DispatchRays(_SSProbesShader, "MyRaygenShader", (uint)_SSProbes.width, (uint)_SSProbes.height, 1, ctx.hdCamera.camera);
 		}
 
 		private void _SSProbesTemporalReprojectionPass(CustomPassContext ctx)
 		{
 			_SSTemporalShader.SetTexture(0, "_HistoryNormalDepth", _HistoryNormalDepth);
-			_SSTemporalShader.SetTexture(0, "_SSProbes", _SSProbes);
+			_SSTemporalShader.SetTexture(0, "_SSProbes", _SSProbesRadiance);
 			_SSTemporalShader.SetTexture(0, "_TemporalAccumulation", _SwapReprojectedTexture ? _SSProbesReprojected2 : _SSProbesReprojected);
 
 			_SSTemporalShader.SetInt("_ProbeSize", ProbeSize);
@@ -285,7 +321,7 @@ namespace Avol.RTGI
 
 		private void _SSProbesSpatialReprojectionPass(CustomPassContext ctx)
 		{
-			_SSTemporalShader.SetTexture(1, "_TemporalAccumulation", TemporalFilter ? _SwapReprojectedTexture ? _SSProbesReprojected2 : _SSProbesReprojected : _SSProbes);
+			_SSTemporalShader.SetTexture(1, "_TemporalAccumulation", TemporalFilter ? _SwapReprojectedTexture ? _SSProbesReprojected2 : _SSProbesReprojected : _SSProbesRadiance);
 			_SSTemporalShader.SetTexture(1, "_SpatialAccumulation", _SwapReprojectedTexture ? _SSProbesReprojected : _SSProbesReprojected2);
 
 			_SSTemporalShader.SetFloat("_MaxRayDistance", MaxRayDistance);
@@ -302,13 +338,21 @@ namespace Avol.RTGI
 
 		private void _SSProbesEcodePass(CustomPassContext ctx)
 		{
-			ctx.cmd.SetComputeTextureParam(_SSEncodingShader, 0, "_SSProbes", SpatialFilter ? _SwapReprojectedTexture ? _SSProbesReprojected : _SSProbesReprojected2 : TemporalFilter ? _SSProbesReprojected : _SSProbes);
+			ctx.cmd.SetComputeTextureParam(_SSEncodingShader, 0, "_SSProbes", SpatialFilter ? _SwapReprojectedTexture ? _SSProbesReprojected : _SSProbesReprojected2 : TemporalFilter ? _SSProbesReprojected : _SSProbesRadiance);
 			ctx.cmd.SetComputeTextureParam(_SSEncodingShader, 0, "_SHAtlasR", _SSProbesSHAtlasR);
 			ctx.cmd.SetComputeTextureParam(_SSEncodingShader, 0, "_SHAtlasG", _SSProbesSHAtlasG);
 			ctx.cmd.SetComputeTextureParam(_SSEncodingShader, 0, "_SHAtlasB", _SSProbesSHAtlasB);
 
 			ctx.cmd.SetComputeIntParam(_SSEncodingShader, "_ProbeSize", ProbeSize);
 			ctx.cmd.DispatchCompute(_SSEncodingShader, 0, _SSProbesSHAtlasR.width, _SSProbesSHAtlasR.height, 1);
+		}
+
+		private void _SSImportanceSampling(CustomPassContext ctx)
+		{
+			ctx.cmd.SetComputeTextureParam(_SSImportanceSamplingShader, 0, "_SSProbes", SpatialFilter ? _SwapReprojectedTexture ? _SSProbesReprojected : _SSProbesReprojected2 : TemporalFilter ? _SSProbesReprojected : _SSProbesRadiance);
+			ctx.cmd.SetComputeTextureParam(_SSImportanceSamplingShader, 0, "_SSProbesLightingPDF", _SSProbesLightingPDF);
+			ctx.cmd.SetComputeIntParam(_SSImportanceSamplingShader, "_ProbeSize", ProbeSize);
+			ctx.cmd.DispatchCompute(_SSImportanceSamplingShader, 0, _SSProbesLightingPDF.width, _SSProbesLightingPDF.height, 1);
 		}
 
 		private void _ComposePass(CustomPassContext ctx)
@@ -318,7 +362,7 @@ namespace Avol.RTGI
 			ctx.propertyBlock.SetVector("_ProbeLayoutResolution", new Vector2(_SSProbesReprojected.width, _SSProbesReprojected.height));
 			ctx.propertyBlock.SetVector("_ScreenResolution", new Vector2(ctx.hdCamera.actualWidth, ctx.hdCamera.actualHeight) * Upscale);
 
-			ctx.propertyBlock.SetTexture("_SSProbes", _SSProbes);
+			ctx.propertyBlock.SetTexture("_SSProbes", _SSProbesRadiance);
 
 			ctx.propertyBlock.SetTexture("_SHAtlasR", _SSProbesSHAtlasR);
 			ctx.propertyBlock.SetTexture("_SHAtlasG", _SSProbesSHAtlasG);

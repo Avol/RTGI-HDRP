@@ -50,7 +50,8 @@ RaytracingAccelerationStructure _RaytracingAccelerationStructure;
 
 #define SHADER_TARGET 50
 
-RWTexture2D<float4> _SSProbes;
+Texture2D<half>			_SSProbesLightingPDF;
+RWTexture2D<float4>		_SSProbes;
 
 uniform				int			_Frame;
 uniform				int			_RayCount;
@@ -59,10 +60,44 @@ uniform				int			_ProbeSize;
 uniform				int			_Upscale;
 uniform				float		_RayConeAngle;
 uniform				float		_MaxRayDistance;
+uniform				bool		_TraceJitter;
 uniform				float2		_ScreenResolution;
 uniform				float		_BounceDistance;
 uniform				float		_TemporalWeight;
+uniform				bool		_ImportanceSampling;
 
+// Retrieves world space normal and linear depth.
+// @ positionCS = screen space UV coordinate.
+float4 GetNormalDepth(float2 positionCS, out float3 worldPosition)
+{
+	float4 normalDepth = 0;
+
+	// load normal
+	NormalData normalData;
+	DecodeFromNormalBuffer(positionCS, normalData);
+	normalDepth.xyz = normalData.normalWS;
+
+
+	// load depth
+	float			depth = LoadCameraDepth(positionCS);
+	PositionInputs	posInput = GetPositionInput(positionCS, _ScreenSize.zw, depth, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
+	normalDepth.w = posInput.linearDepth;
+
+	worldPosition = posInput.positionWS + _WorldSpaceCameraPos;
+
+	return normalDepth;
+}
+
+//  Compare probe vs pixel distance and normal.
+//
+int DistancePlaneWeighting(float3 fromNormal, float3 fromWorldPosition, float fromDepth, float3 toWorldPosition)
+{
+	float4	probeScenePlane				= float4(fromNormal, dot(fromWorldPosition, fromNormal));
+	float	planeDistance				= abs(dot(float4(toWorldPosition, -1), probeScenePlane));
+	float	relativeDepthDifference		= planeDistance / fromDepth;
+
+	return exp2(-1000000 * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
+}
 
 int traceShadow(float3 worldPos)
 {
@@ -72,7 +107,7 @@ int traceShadow(float3 worldPos)
 	RayDesc rayDescriptor;
 	rayDescriptor.TMin			= 0;
 	rayDescriptor.TMax			= _MaxRayDistance;
-	rayDescriptor.Origin		= worldPos;
+	rayDescriptor.Origin		= worldPos + light.forward;
 	rayDescriptor.Direction		= -light.forward;
 
 	// Create and init the RayIntersection structure for this
@@ -82,13 +117,11 @@ int traceShadow(float3 worldPos)
 
 	TraceRay(_RaytracingAccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, RAYTRACING_OPAQUE_FLAG, 0, 1, 0, rayDescriptor, rayIntersection);
 
-
 	return rayIntersection.distance != -1 ? 0 : 1;
 }
 
-// TODO: if point outside of camera view, or even better outside of shadow view, do traced shadow.
-// tracing is probably not needed for non directional lights.
-float3 LightLoop(float3 positionWS)
+
+float3 LightLoop(float3 positionWS, float3 normalWS)
 {
 	LightLoopContext context;
 	context.shadowContext    = InitShadowContext();
@@ -107,32 +140,37 @@ float3 LightLoop(float3 positionWS)
 
 		float3 L = -light.forward;
 
-		PositionInputs posInput;
-		posInput.positionWS = positionWS - _WorldSpaceCameraPos;
-		posInput.positionSS = 0;
-		float3 normalWS		= 0;
+		if (dot(L, normalWS) > 0) // skip if facing wrong way.
+		{
+			PositionInputs posInput;
+			posInput.positionWS = positionWS - _WorldSpaceCameraPos;
+			posInput.positionSS = 0;
+			float3 normalWS		= 0;
 
-		context.shadowValue = traceShadow(positionWS); /*GetDirectionalShadowAttenuation(	context.shadowContext,
-																posInput.positionSS, posInput.positionWS, normalWS,
-																light.shadowIndex, L);*/
+			// TODO: if point outside of camera view, or even better outside of shadow view, do traced shadow.
+			// NOTE: tracing is probably not needed for non directional lights.
+			context.shadowValue = traceShadow(positionWS); /*GetDirectionalShadowAttenuation(	context.shadowContext,
+																	posInput.positionSS, posInput.positionWS, normalWS,
+																	light.shadowIndex, L);*/
 
 
-		SHADOW_TYPE shadow = EvaluateShadow_Directional(context, posInput, light, unused, normalWS);
-		color += ComputeShadowColor(shadow, light.shadowTint, light.penumbraTint);
+			SHADOW_TYPE shadow = EvaluateShadow_Directional(context, posInput, light, unused, normalWS);
+			color += ComputeShadowColor(shadow, light.shadowTint, light.penumbraTint);
+		}
 	}
 
 	return color;
 }
 
 
-float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay)
+float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay, int superSampleRayCount)
 {
 	const uint rayCount = _RayCount;
 
 
 	float4 radiance = 0;
 	int countRays = 0;
-	for (int i = 0; i < _RayCount; i++)
+	for (int i = 0; i < superSampleRayCount; i++)
 	{
 		float invCone = 1.0 - _RayConeAngle;
 
@@ -160,7 +198,7 @@ float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay)
 
 		float3 hitPosition	= worldPos + jitteredOctaRay * (rayIntersection.distance - 0.01);
 
-		float3 lightLoop	= LightLoop(hitPosition);
+		float3 lightLoop	= LightLoop(hitPosition, rayIntersection.normal);
 
 		float distanceWeight = 1.0 - (rayIntersection.distance) / _MaxRayDistance;
 
@@ -182,32 +220,52 @@ void MyRaygenShader()
 	uint2	dispatchIdx		= DispatchRaysIndex().xy;
 	float2	resolution		= DispatchRaysDimensions().xy;
 
-	uint	seed			= initRand(dispatchIdx.x, dispatchIdx.y) + initRand(_Frame, _Frame);
+	uint2	probeCS			= (dispatchIdx.xy - dispatchIdx.xy % _ProbeSize);
 
-	// TODO: jitter only if lies in same distance plane, otherwise reuse same location.
-	float2	jitter				= float2(	random(dispatchIdx.xy / resolution + _Frame * _TemporalWeight),
-											random(dispatchIdx.yx / resolution + _Frame * _TemporalWeight)	);
-	uint2	jitterUint2			= min(_ProbeSize - 1, floor(jitter * _ProbeSize));
 
-	uint2	jiterredDispatch	= (dispatchIdx.xy - dispatchIdx.xy % _ProbeSize);// + jitterUint2 / _Upscale;
-			jiterredDispatch	= min(jiterredDispatch, _ScreenResolution - 1);	// clamp jiterred position to screen resolution
+	if (_TraceJitter)
+	{
+		float2	jitter				= float2(	random(dispatchIdx.xy / resolution + _Frame * _TemporalWeight),
+												random(dispatchIdx.yx / resolution + _Frame * _TemporalWeight)	);
+		uint2	jitterUint2			= min(_ProbeSize - 1, floor(jitter * _ProbeSize));
 
-	float	depth				= LoadCameraDepth(jiterredDispatch);
-	
-	// position
-	PositionInputs posInput		= GetPositionInput(jiterredDispatch, _ScreenSize.zw, depth, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
-	float3	worldPosition		= posInput.positionWS + _WorldSpaceCameraPos;
+		probeCS	+= jitterUint2;// / _Upscale;
+		probeCS	= min(probeCS, _ScreenResolution - 1);	// clamp jiterred position to screen resolution
+	}
 
-	// normal
-	NormalData normalData0;
-	DecodeFromNormalBuffer(jiterredDispatch, normalData0);
-	float3	normal		= normalData0.normalWS;
+	float3 worldPosition	= 0;
+	float4 normalDepth		= GetNormalDepth(probeCS, worldPosition);
+
+	if (_TraceJitter)
+	{
+		uint2   positionCSNonJittered			= (dispatchIdx.xy - dispatchIdx.xy % _ProbeSize);
+
+		float3	worldPositionNonJittered		= 0;
+		float4	normalDepthNonJittered			= GetNormalDepth(positionCSNonJittered, worldPositionNonJittered);
+
+		float weight = DistancePlaneWeighting(normalDepth.xyz, worldPosition, normalDepth.w, worldPositionNonJittered);
+		if (weight == 0)
+		{
+			worldPosition	= worldPositionNonJittered;
+			normalDepth		= normalDepthNonJittered;
+		}
+	}
 
 	// calculate octahedral ray direction.
 	float2	octaUV		= dispatchIdx.xy % _ProbeSize;
 	float3	octaRay		= UVtoOctahedron((octaUV + 0.5) / _ProbeSize);
 
-	_SSProbes[dispatchIdx] = trace(seed, worldPosition, normal, octaRay);
+	// importance sampling
+	// TODO: reproject previous frame location of PDF. avarage out 4 samples.
+	int		superSampleRayCount			= _RayCount;
+	if (_ImportanceSampling)
+	{
+		float	PDF						= _SSProbesLightingPDF[dispatchIdx.xy];
+		superSampleRayCount				= max(1, min(4, round(PDF * 64))) * _RayCount;
+	}
+
+	uint	seed					= initRand(dispatchIdx.x, dispatchIdx.y) + initRand(_Frame, _Frame);
+	_SSProbes[dispatchIdx]			= trace(seed, worldPosition, normalDepth.xyz, octaRay, superSampleRayCount);
 }
 
 [shader("miss")]

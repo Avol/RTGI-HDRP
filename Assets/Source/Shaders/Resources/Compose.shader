@@ -105,7 +105,7 @@ Shader "FullScreen/Compose"
 		float	planeDistance				= abs(dot(float4(toWorldPosition, -1), probeScenePlane));
 		float	relativeDepthDifference		= planeDistance / fromDepth;
 
-		return exp2(-1000000.0f * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
+		return exp2(-1000000 * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
 	}
 
     // There are also a lot of utility function you can use inside Common.hlsl and Color.hlsl,

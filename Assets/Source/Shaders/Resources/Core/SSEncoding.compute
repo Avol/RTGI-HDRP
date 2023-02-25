@@ -11,11 +11,6 @@ RWTexture3D<float> _SHAtlasB;
 
 uniform int		_ProbeSize;
 
-float luminance(float3 color)
-{
-	return (color.r * 0.3) + (color.g * 0.59) + (color.b * 0.11);
-}
-
 [numthreads(8,8,1)]
 void SSFiltering(uint3 id : SV_DispatchThreadID)
 {

@@ -10,7 +10,6 @@
 #define RAYTRACING_OPAQUE_FLAG      0x0f
 #define RAYTRACING_TRANSPARENT_FLAG 0xf0
 
-
 // Takes our seed, updates it, and returns a pseudorandom float in [0..1]
 float nextRand(inout uint s)
 {
@@ -118,6 +117,7 @@ float2 rand_2_0004(in float2 uv)
 struct RayPayload
 {
 	float3  color;
+	float3	normal;
 	float	distance;
 };
 

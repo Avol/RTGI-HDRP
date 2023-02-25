@@ -1,0 +1,53 @@
+#pragma kernel SSImportanceSamplingHistoryLightning
+
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/RenderPass/CustomPass/CustomPassCommon.hlsl"
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/NormalBuffer.hlsl"
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/Builtin/BuiltinData.hlsl"
+
+#include "../Octahedron.cginc"
+#include "../Common.cginc"
+
+Texture2D<float4>		_SSProbes;
+RWTexture2D<half>		_SSProbesLightingPDF;
+
+uniform int _ProbeSize;
+
+groupshared float _SharedLocalPDF[8 * 8];
+
+
+[numthreads(8,8,1)]
+void SSImportanceSamplingHistoryLightning(uint3 id : SV_DispatchThreadID)
+{
+	uint2	octaDir				= id.xy % _ProbeSize;
+	uint2	probeCS				= id.xy - octaDir;
+	uint	sharedGroupIndex	= octaDir.x + octaDir.y * _ProbeSize;
+
+	float	 thisLuminance		= Luminance(_SSProbes[id.xy].xyz);
+
+	_SharedLocalPDF[sharedGroupIndex] = Luminance(_SSProbes[id.xy].xyz);
+
+	GroupMemoryBarrierWithGroupSync();
+
+
+	float totalLuminance	= 0;
+	for (int x = 0; x < _ProbeSize; x++)
+	{
+		for (int y = 0; y < _ProbeSize; y++)
+		{
+			float luminance = _SharedLocalPDF[x + y * _ProbeSize];
+			totalLuminance += luminance;
+		}
+	}
+
+	if (totalLuminance < 1.0 / 64.0)
+	{
+		_SSProbesLightingPDF[id.xy] = 1.0 / 64.0;
+		return;
+	}
+	
+	_SSProbesLightingPDF[id.xy] = thisLuminance / totalLuminance;
+
+	// 1 ray = 1 / 64;
+	// 2 ray = 1 / 32;
+	// 3 ray = 1 / 16;
+}
