@@ -1,4 +1,7 @@
+#pragma kernel SSImportanceSamplingHistoryBRDF
 #pragma kernel SSImportanceSamplingHistoryLightning
+#pragma kernel SSImportanceSamplingPackRays
+#pragma kernel SSImportanceSamplingUnpackRadiance
 
 #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/RenderPass/CustomPass/CustomPassCommon.hlsl"
 #include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/NormalBuffer.hlsl"
@@ -8,46 +11,139 @@
 #include "../Common.cginc"
 
 Texture2D<float4>		_SSProbes;
+RWTexture2D<float4>		_SSProbesUnpacked;
+
+RWTexture2D<half>		_SSProbesSurfaceBRDF;
 RWTexture2D<half>		_SSProbesLightingPDF;
+RWTexture2D<half>		_SSProbesRayAtlas;
+
 
 uniform int _ProbeSize;
 
-groupshared float _SharedLocalPDF[8 * 8];
+// Retrieves world space normal and linear depth.
+// @ positionCS = screen space UV coordinate.
+float4 GetNormalDepth(float2 positionCS, out float3 worldPosition)
+{
+	float4 normalDepth = 0;
+
+	// load normal
+	NormalData normalData;
+	DecodeFromNormalBuffer(positionCS, normalData);
+	normalDepth.xyz = normalData.normalWS;
 
 
+	// load depth
+	float			depth = LoadCameraDepth(positionCS);
+	PositionInputs	posInput = GetPositionInput(positionCS, _ScreenSize.zw, depth, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
+	normalDepth.w = posInput.linearDepth;
+
+	worldPosition = posInput.positionWS + _WorldSpaceCameraPos;
+
+	return normalDepth;
+}
+
+// TODO: history reprojection
+[numthreads(8, 8, 1)]
+void SSImportanceSamplingHistoryBRDF(uint3 id : SV_DispatchThreadID)
+{
+	uint2	octaUV					= id.xy % _ProbeSize;
+	uint2	probeCS					= id.xy - octaUV;
+	uint	sharedGroupIndex		= octaUV.x + octaUV.y * _ProbeSize;
+
+	float3	worldPosition			= 0;
+	float4	normalDepth				= GetNormalDepth(probeCS, worldPosition);
+
+	float3	octaRay					= UVtoOctahedron((octaUV + 0.5) / _ProbeSize);
+	float	BRDF					= max(0, dot(octaRay, normalDepth.xyz));
+
+	_SSProbesSurfaceBRDF[id.xy]		= BRDF;
+}
+
+// TODO: history reprojection
 [numthreads(8,8,1)]
 void SSImportanceSamplingHistoryLightning(uint3 id : SV_DispatchThreadID)
 {
-	uint2	octaDir				= id.xy % _ProbeSize;
-	uint2	probeCS				= id.xy - octaDir;
-	uint	sharedGroupIndex	= octaDir.x + octaDir.y * _ProbeSize;
+	//uint2	octaUV				= id.xy % _ProbeSize;
+	//uint2	probeCS				= id.xy - octaUV;
+	//uint	sharedGroupIndex	= octaUV.x + octaUV.y * _ProbeSize;
 
-	float	 thisLuminance		= Luminance(_SSProbes[id.xy].xyz);
+	_SSProbesLightingPDF[id.xy] = Luminance(_SSProbes[id.xy].xyz);
+}
 
-	_SharedLocalPDF[sharedGroupIndex] = Luminance(_SSProbes[id.xy].xyz);
+
+groupshared half	_UnsortedPDFRays[8 * 8];	// pdf.
+groupshared uint	_SortedPDFRays[8 * 8];		// ray index.
+
+[numthreads(8, 8, 1)]
+void SSImportanceSamplingPackRays(uint3 id : SV_DispatchThreadID)
+{
+	uint2		octaUV					= id.xy % _ProbeSize;
+	uint		rayIndex				= octaUV.x + octaUV.y * _ProbeSize;
+
+	float		surfaceBRDF				= _SSProbesSurfaceBRDF[id.xy];
+	float		lightningPDF			= _SSProbesLightingPDF[id.xy];
+
+	float		cullPDFThreshold = 0.1f;
+
+
+	if (surfaceBRDF < cullPDFThreshold)
+	{
+		_UnsortedPDFRays[rayIndex] = 0;
+	}
+	else
+	{
+		_UnsortedPDFRays[rayIndex] = surfaceBRDF * lightningPDF;
+	}
 
 	GroupMemoryBarrierWithGroupSync();
 
+	// o2 parallel sort
+	uint raysMore = 0;
+	uint raysSame = 0;
 
-	float totalLuminance	= 0;
-	for (int x = 0; x < _ProbeSize; x++)
+	for (uint c = 0; c < 64; c++)
 	{
-		for (int y = 0; y < _ProbeSize; y++)
+		if (rayIndex != c)
 		{
-			float luminance = _SharedLocalPDF[x + y * _ProbeSize];
-			totalLuminance += luminance;
+			if (_UnsortedPDFRays[rayIndex] < _UnsortedPDFRays[c])
+				raysMore++;
+
+			else if (_UnsortedPDFRays[rayIndex] == _UnsortedPDFRays[c] && rayIndex > c)
+				raysSame++;
 		}
 	}
 
-	if (totalLuminance < 1.0 / 64.0)
-	{
-		_SSProbesLightingPDF[id.xy] = 1.0 / 64.0;
-		return;
-	}
-	
-	_SSProbesLightingPDF[id.xy] = thisLuminance / totalLuminance;
+	_SortedPDFRays[raysMore + raysSame] = rayIndex;
 
-	// 1 ray = 1 / 64;
-	// 2 ray = 1 / 32;
-	// 3 ray = 1 / 16;
+	GroupMemoryBarrierWithGroupSync();
+
+	// first 4 rays to be supersampled.
+	/*if (rayIndex < 4)
+	{
+		_SSProbesRayAtlas[id.xy] = _SortedPDFRays[rayIndex] / 255.0f;
+		_SSProbesRayAtlas[id.xy] = _SortedPDFRays[rayIndex] / 255.0f;
+		_SSProbesRayAtlas[id.xy] = _SortedPDFRays[rayIndex] / 255.0f;
+		_SSProbesRayAtlas[id.xy] = _SortedPDFRays[rayIndex] / 255.0f;
+	}
+	else if (rayIndex > 63 - 4 * 3)
+	{
+
+	}*/
+
+	_SSProbesRayAtlas[id.xy] = _SortedPDFRays[rayIndex] / 255.0f;
+}
+
+[numthreads(8, 8, 1)]
+void SSImportanceSamplingUnpackRadiance(uint3 id : SV_DispatchThreadID)
+{
+	uint2	octahedralRay	= id.xy % _ProbeSize;
+	uint2	probeCS			= id.xy - octahedralRay;
+
+	uint	rayIndex			= _SSProbesRayAtlas[id.xy] * 255;
+	uint2	atlasRay			= UnpackRay(rayIndex);//uint2(rayIndex % 8, floor(rayIndex / 8.0f));
+	uint2	probeAtlasIndex		= probeCS + atlasRay;
+
+	// last 4 rays to be dropped. 
+
+	_SSProbesUnpacked[probeAtlasIndex] = _SSProbes[id.xy];
 }

@@ -113,7 +113,7 @@ int DistancePlaneWeighting(float3 fromNormal, float3 fromWorldPosition, float fr
 	float	planeDistance				= abs(dot(float4(toWorldPosition, -1), probeScenePlane));
 	float	relativeDepthDifference		= planeDistance / fromDepth;
 
-	return exp2(-1000000 * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
+	return exp2(-10000 * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
 }
 
 // reprojects history samples to current position.
@@ -206,13 +206,9 @@ void SSTemporalReprojection(uint3 id : SV_DispatchThreadID)
 	float4		historyRadiance		= TemporalReprojection(probeCS, historyCSPosition, newRadiance, octaDir, historyWeight);
 
 
-	//_TemporalAccumulation[id.xy]	= lerp(_TemporalAccumulation[id.xy], newRadiance, _TemporalWeight);
-	//return;
-
 	float		temporalWeight		= lerp(1, _TemporalWeight, historyWeight);
 	if (historyWeight != 1)
 	{
-		//_TemporalAccumulation[id.xy] = float4(1, 0, 0, 1);
 		_TemporalAccumulation[id.xy] = newRadiance;
 		return;
 	}

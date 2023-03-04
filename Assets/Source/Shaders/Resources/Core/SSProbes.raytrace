@@ -50,6 +50,8 @@ RaytracingAccelerationStructure _RaytracingAccelerationStructure;
 
 #define SHADER_TARGET 50
 
+uniform bool _TestTracingLanes;
+Texture2D<half>			_SSProbesRayAtlas;
 Texture2D<half>			_SSProbesLightingPDF;
 RWTexture2D<float4>		_SSProbes;
 
@@ -174,6 +176,11 @@ float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay, int supe
 	{
 		float invCone = 1.0 - _RayConeAngle;
 
+		//if (dot(normal, octaRay) <= 0)
+		//{
+		//	return float4(1, 0, 0, 1);
+		//}
+
 		float3 jitteredOctaRay = normalize(octaRay * invCone + getCosHemisphereSample(seed, octaRay) * _RayConeAngle);
 
 		if (dot(normal, jitteredOctaRay) <= 0)
@@ -212,9 +219,8 @@ float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay, int supe
 	return radiance / countRays;
 }
 
-
 [shader("raygeneration")]
-void MyRaygenShader()
+void SSRadiance()
 {
 	// current pixel
 	uint2	dispatchIdx		= DispatchRaysIndex().xy;
@@ -225,8 +231,8 @@ void MyRaygenShader()
 
 	if (_TraceJitter)
 	{
-		float2	jitter				= float2(	random(dispatchIdx.xy / resolution + _Frame * _TemporalWeight),
-												random(dispatchIdx.yx / resolution + _Frame * _TemporalWeight)	);
+		float2	jitter				= float2(	random(dispatchIdx.xy / resolution + _Frame),
+												random(dispatchIdx.yx / resolution + _Frame)	);
 		uint2	jitterUint2			= min(_ProbeSize - 1, floor(jitter * _ProbeSize));
 
 		probeCS	+= jitterUint2;// / _Upscale;
@@ -251,20 +257,23 @@ void MyRaygenShader()
 		}
 	}
 
-	// calculate octahedral ray direction.
-	float2	octaUV		= dispatchIdx.xy % _ProbeSize;
-	float3	octaRay		= UVtoOctahedron((octaUV + 0.5) / _ProbeSize);
-
-	// importance sampling
-	// TODO: reproject previous frame location of PDF. avarage out 4 samples.
-	int		superSampleRayCount			= _RayCount;
+	// get octahedral ray direction.
+	float2	octaUV = 0;
 	if (_ImportanceSampling)
 	{
-		float	PDF						= _SSProbesLightingPDF[dispatchIdx.xy];
-		superSampleRayCount				= max(1, min(4, round(PDF * 64))) * _RayCount;
+		int		rayIndex	= _SSProbesRayAtlas[dispatchIdx] * 255;
+		octaUV	= UnpackRay(rayIndex);//float2(rayIndex % _ProbeSize, floor(rayIndex / _ProbeSize));
+	}
+	else
+	{
+		octaUV	= dispatchIdx.xy % _ProbeSize;
 	}
 
-	uint	seed					= initRand(dispatchIdx.x, dispatchIdx.y) + initRand(_Frame, _Frame);
+	float3	octaRay		= UVtoOctahedron((octaUV + 0.5) / _ProbeSize);
+
+
+	int		superSampleRayCount		= _RayCount;
+	uint	seed					= initRand(probeCS.x + octaUV.x, probeCS.y + octaUV.y) + initRand(_Frame, _Frame);
 	_SSProbes[dispatchIdx]			= trace(seed, worldPosition, normalDepth.xyz, octaRay, superSampleRayCount);
 }
 

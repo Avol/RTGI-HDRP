@@ -185,9 +185,15 @@ Shader "FullScreen/Compose"
 		float4 gBufferAlbedo = LOAD_TEXTURE2D_X(_GBufferTexture0, positionCS);
 		gBufferAlbedo = max(0.01, gBufferAlbedo);
 
-		float3 exposure = /*GetCurrentExposureMultiplier() * */_Exposure;
+		float3	exposure	= /*GetCurrentExposureMultiplier() * */_Exposure;
 
-		float3 radiance = calcIrradiance(pixelNormalDepth.xyz, sh9Color) * gBufferAlbedo.rgb * exposure;
+		float3	radiance	= calcIrradiance(pixelNormalDepth.xyz, sh9Color) * gBufferAlbedo.rgb * exposure;
+
+		//float3	viewVector		= normalize(worldPosition - _WorldSpaceCameraPos);
+		//float3	reflectVector	= reflect(viewVector, normalize(pixelNormalDepth.xyz));
+		//float3	reflection		= calcIrradiance(reflectVector.xyz, sh9Color) * exposure;
+
+
 		return float4(radiance, 1);
     }
 

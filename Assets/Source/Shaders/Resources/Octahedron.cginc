@@ -72,3 +72,13 @@ float OctahedralSolidAngle(float2 TexelCoord, float InvResolution)
 
 	return SolidAngle0 + SolidAngle1;
 }
+
+uint PackRay(uint2 octaUV)
+{
+	return octaUV.x + octaUV.y * 8;
+}
+
+uint2 UnpackRay(uint rayID)
+{
+	return uint2(rayID % 8, floor(rayID / 8.0f));
+}
