@@ -511,9 +511,8 @@ MonoBehaviour:
         passFoldout: 0
         m_Version: 0
         ExecuteInSceneView: 0
-        ProbeSize: 8
         Upscale: 1
-        MaxRayDistance: 50
+        MaxRayDistance: 100
         BounceDistance: 1
         RayCount: 1
         Exposure: 20
@@ -522,21 +521,24 @@ MonoBehaviour:
         TemporalFilter: 1
         SpatialFilter: 1
         ReuseTemporalAndSpatialHistory: 0
+        ImportanceSampling: 1
         DistancePlaneWeightingReprojection: 1
         AngleWeightingReprojection: 1
         DistancePlaneWeightingCompose: 1
         VisualizeDistancePlaneWeighting: 0
         VisualizeSSProbes: 0
         _HistoryNormalDepth: {fileID: 0}
+        _SSProbesRayAtlas: {fileID: 0}
         _SSProbesRadiance: {fileID: 0}
         _SSProbesReprojected: {fileID: 0}
         _SSProbesReprojected2: {fileID: 0}
+        _SSProbesSurfaceBRDF: {fileID: 0}
         _SSProbesLightingPDF: {fileID: 0}
         _SSProbesSHAtlasR: {fileID: 0}
         _SSProbesSHAtlasG: {fileID: 0}
         _SSProbesSHAtlasB: {fileID: 0}
         DebugProbesColor: 0
-        Frame: 1
+        Frame: 3
 --- !u!4 &569406454
 Transform:
   m_ObjectHideFlags: 0

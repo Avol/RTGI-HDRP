@@ -50,6 +50,7 @@ RaytracingAccelerationStructure _RaytracingAccelerationStructure;
 
 #define SHADER_TARGET 50
 
+Texture2D<half>			_SSProbesRayAtlas;
 Texture2D<half>			_SSProbesLightingPDF;
 RWTexture2D<float4>		_SSProbes;
 
@@ -212,7 +213,6 @@ float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay, int supe
 	return radiance / countRays;
 }
 
-
 [shader("raygeneration")]
 void MyRaygenShader()
 {
@@ -251,17 +251,35 @@ void MyRaygenShader()
 		}
 	}
 
-	// calculate octahedral ray direction.
-	float2	octaUV		= dispatchIdx.xy % _ProbeSize;
+	// get octahedral ray direction.
+	float2	octaUV = 0;
+	if (_ImportanceSampling)
+	{
+		int		rayIndex	= _SSProbesRayAtlas[dispatchIdx] * 255;
+		octaUV = float2(rayIndex % _ProbeSize, floor(rayIndex / _ProbeSize));
+	}
+	else
+	{
+		octaUV = dispatchIdx.xy % _ProbeSize;
+	}
+
 	float3	octaRay		= UVtoOctahedron((octaUV + 0.5) / _ProbeSize);
 
 	// importance sampling
 	// TODO: reproject previous frame location of PDF. avarage out 4 samples.
 	int		superSampleRayCount			= _RayCount;
+
 	if (_ImportanceSampling)
 	{
-		float	PDF						= _SSProbesLightingPDF[dispatchIdx.xy];
-		superSampleRayCount				= max(1, min(4, round(PDF * 64))) * _RayCount;
+
+		//float	PDF						= _SSProbesLightingPDF[dispatchIdx.xy];
+		//superSampleRayCount				= max(0, min(4, floor(PDF * 64))) * _RayCount;
+
+		//if (_Frame == (octaUV.x + octaUV.y * _ProbeSize) % 4)
+		//{
+		//	superSampleRayCount = 1;
+		//	superSampleRayCount = 1;
+		//}
 	}
 
 	uint	seed					= initRand(dispatchIdx.x, dispatchIdx.y) + initRand(_Frame, _Frame);
