@@ -1,0 +1,24 @@
+#pragma kernel WSEncoding
+
+//RWTexture2D<float4> _WSProbes;
+RWTexture2D<float4> _WSProbes0 : register(u0);
+RWTexture2D<float4> _WSProbes1 : register(u1);
+RWTexture2D<float4> _WSProbes2 : register(u2);
+
+// Retrieves world space normal and linear depth.
+// @ positionCS = screen space UV coordinate.
+float3 GetWorldPosition(float2 positionCS)
+{
+	// load depth
+	float			depth = LoadCameraDepth(positionCS);
+	PositionInputs	posInput = GetPositionInput(positionCS, _ScreenSize.zw, depth, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
+	normalDepth.w = posInput.linearDepth;
+
+	return posInput.positionWS + _WorldSpaceCameraPos;
+}
+
+[numthreads(8,8,1)]
+void WSEncoding(uint3 id : SV_DispatchThreadID)
+{
+	_WSProbes2[id.xy] = 1;
+}

@@ -16,7 +16,7 @@ RWTexture2D<float4>		_SSProbesUnpacked;
 RWTexture2D<half>		_SSProbesSurfaceBRDF;
 RWTexture2D<half>		_SSProbesLightingPDF;
 RWTexture2D<half>		_SSProbesRayAtlas;
-
+RWTexture2D<half>		_SSProbesRayAtlasLoc;
 
 uniform int _ProbeSize;
 
@@ -48,7 +48,7 @@ void SSImportanceSamplingHistoryBRDF(uint3 id : SV_DispatchThreadID)
 {
 	uint2	octaUV					= id.xy % _ProbeSize;
 	uint2	probeCS					= id.xy - octaUV;
-	uint	sharedGroupIndex		= octaUV.x + octaUV.y * _ProbeSize;
+	uint	sharedGroupIndex		= PackRay(octaUV);
 
 	float3	worldPosition			= 0;
 	float4	normalDepth				= GetNormalDepth(probeCS, worldPosition);
@@ -63,22 +63,18 @@ void SSImportanceSamplingHistoryBRDF(uint3 id : SV_DispatchThreadID)
 [numthreads(8,8,1)]
 void SSImportanceSamplingHistoryLightning(uint3 id : SV_DispatchThreadID)
 {
-	//uint2	octaUV				= id.xy % _ProbeSize;
-	//uint2	probeCS				= id.xy - octaUV;
-	//uint	sharedGroupIndex	= octaUV.x + octaUV.y * _ProbeSize;
-
-	_SSProbesLightingPDF[id.xy] = Luminance(_SSProbes[id.xy].xyz);
+	_SSProbesLightingPDF[id.xy]		= lerp(_SSProbesLightingPDF[id.xy], Luminance(_SSProbes[id.xy].xyz), 0.25f);
 }
-
 
 groupshared half	_UnsortedPDFRays[8 * 8];	// pdf.
 groupshared uint	_SortedPDFRays[8 * 8];		// ray index.
+groupshared float	_SortedPDF[8 * 8];			// pdf.
 
 [numthreads(8, 8, 1)]
 void SSImportanceSamplingPackRays(uint3 id : SV_DispatchThreadID)
 {
 	uint2		octaUV					= id.xy % _ProbeSize;
-	uint		rayIndex				= octaUV.x + octaUV.y * _ProbeSize;
+	uint		rayIndex				= PackRay(octaUV);
 
 	float		surfaceBRDF				= _SSProbesSurfaceBRDF[id.xy];
 	float		lightningPDF			= _SSProbesLightingPDF[id.xy];
@@ -92,7 +88,7 @@ void SSImportanceSamplingPackRays(uint3 id : SV_DispatchThreadID)
 	}
 	else
 	{
-		_UnsortedPDFRays[rayIndex] = surfaceBRDF * lightningPDF;
+		_UnsortedPDFRays[rayIndex] = surfaceBRDF * max(0.01, lightningPDF);
 	}
 
 	GroupMemoryBarrierWithGroupSync();
@@ -108,29 +104,33 @@ void SSImportanceSamplingPackRays(uint3 id : SV_DispatchThreadID)
 			if (_UnsortedPDFRays[rayIndex] < _UnsortedPDFRays[c])
 				raysMore++;
 
-			else if (_UnsortedPDFRays[rayIndex] == _UnsortedPDFRays[c] && rayIndex > c)
+			else if (_UnsortedPDFRays[rayIndex] == _UnsortedPDFRays[c] && rayIndex <= c)
 				raysSame++;
 		}
 	}
 
-	_SortedPDFRays[raysMore + raysSame] = rayIndex;
+	_SortedPDFRays[raysMore + raysSame]		= rayIndex;
 
 	GroupMemoryBarrierWithGroupSync();
 
-	// first 4 rays to be supersampled.
-	/*if (rayIndex < 4)
+
+	_SSProbesRayAtlasLoc[id.xy] = (raysMore + raysSame) / 255.0f;
+
+	if (rayIndex < 32)
 	{
-		_SSProbesRayAtlas[id.xy] = _SortedPDFRays[rayIndex] / 255.0f;
-		_SSProbesRayAtlas[id.xy] = _SortedPDFRays[rayIndex] / 255.0f;
-		_SSProbesRayAtlas[id.xy] = _SortedPDFRays[rayIndex] / 255.0f;
 		_SSProbesRayAtlas[id.xy] = _SortedPDFRays[rayIndex] / 255.0f;
 	}
-	else if (rayIndex > 63 - 4 * 3)
+	else
 	{
-
-	}*/
-
-	_SSProbesRayAtlas[id.xy] = _SortedPDFRays[rayIndex] / 255.0f;
+		if (rayIndex == 63)
+		{
+			_SSProbesRayAtlas[id.xy] = 63 / 255.0f;
+		}
+		else
+		{
+			_SSProbesRayAtlas[id.xy] = _SortedPDFRays[floor((rayIndex - 32) / 3)] / 255.0f;
+		}
+	}
 }
 
 [numthreads(8, 8, 1)]
@@ -140,10 +140,43 @@ void SSImportanceSamplingUnpackRadiance(uint3 id : SV_DispatchThreadID)
 	uint2	probeCS			= id.xy - octahedralRay;
 
 	uint	rayIndex			= _SSProbesRayAtlas[id.xy] * 255;
-	uint2	atlasRay			= UnpackRay(rayIndex);//uint2(rayIndex % 8, floor(rayIndex / 8.0f));
+	uint	octaTargetIndex		= _SSProbesRayAtlasLoc[id.xy] * 255;
+
+	uint2	atlasRay			= UnpackRay(rayIndex);
 	uint2	probeAtlasIndex		= probeCS + atlasRay;
 
-	// last 4 rays to be dropped. 
 
-	_SSProbesUnpacked[probeAtlasIndex] = _SSProbes[id.xy];
+	uint	ray0				= PackRay(octahedralRay);
+
+	 
+
+	uint2	targetAtlasLoc		= probeCS + UnpackRay(octaTargetIndex);
+
+
+	if (octaTargetIndex < 32)
+	{
+		if (octaTargetIndex < 10)
+		{
+			float4 rad0 = _SSProbes[targetAtlasLoc];
+
+			uint offset = 32 + octaTargetIndex * 3;
+			uint2 loc1 = UnpackRay(offset);
+			uint2 loc2 = UnpackRay(offset + 1);
+			uint2 loc3 = UnpackRay(offset + 2);
+
+			float4 rad1 = _SSProbes[probeCS + loc1];
+			float4 rad2 = _SSProbes[probeCS + loc2];
+			float4 rad3 = _SSProbes[probeCS + loc3];
+
+			_SSProbesUnpacked[id.xy] = (rad0 + rad1 + rad2 + rad3) * 0.25f;
+		}
+		else
+		{
+			_SSProbesUnpacked[id.xy] = _SSProbes[targetAtlasLoc];
+		}
+	}
+	else
+	{
+		_SSProbesUnpacked[id.xy] = 0;
+	}
 }

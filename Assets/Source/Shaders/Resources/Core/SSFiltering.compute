@@ -179,8 +179,6 @@ float4 TemporalReprojection(uint2 newCSPosition, float2 historyCSPosition, float
 	weight = (probe0Weight + probe1Weight + probe2Weight + probe3Weight) * 0.25f;
 	//return (probe0 * probe0Weight + probe1 * probe1Weight + probe2 * probe2Weight + probe3 * probe3Weight) * 0.25f;
 
-
-
 	// bilinear interpolation
 	//weight = 1;
 	return	lerp(lerp(probe0 * probe0Weight, probe1 * probe1Weight, uv_frac.y),
@@ -193,8 +191,8 @@ float4 TemporalReprojection(uint2 newCSPosition, float2 historyCSPosition, float
 [numthreads(8,8,1)]
 void SSTemporalReprojection(uint3 id : SV_DispatchThreadID)
 {
-	uint2		octaDir				= id.xy % _ProbeSize;
-	uint2		probeCS				= id.xy - octaDir;
+	uint2		octaUV				= id.xy % _ProbeSize;
+	uint2		probeCS				= id.xy - octaUV;
 
 	uint2		probeID				= probeCS / _ProbeSize;
 	float4		newRadiance			= _SSProbes[id.xy];
@@ -203,10 +201,10 @@ void SSTemporalReprojection(uint3 id : SV_DispatchThreadID)
 
 	float2		historyCSPosition	= probeID - motionVector;
 	float		historyWeight		= 0;
-	float4		historyRadiance		= TemporalReprojection(probeCS, historyCSPosition, newRadiance, octaDir, historyWeight);
+	float4		historyRadiance		= TemporalReprojection(probeCS, historyCSPosition, newRadiance, octaUV, historyWeight);
 
 
-	float		temporalWeight		= lerp(1, _TemporalWeight, historyWeight);
+	float		temporalWeight = lerp(1, _TemporalWeight, historyWeight);
 	if (historyWeight != 1)
 	{
 		_TemporalAccumulation[id.xy] = newRadiance;

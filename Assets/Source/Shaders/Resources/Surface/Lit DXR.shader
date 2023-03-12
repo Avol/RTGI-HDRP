@@ -1406,8 +1406,9 @@ Shader "HDRP/Lit DXR"
 				// bsdf
 				BSDFData bsdfData = ConvertSurfaceDataToBSDFData(posInput.positionSS, surfaceData);
 
-				rayPayload.color	= bsdfData.diffuseColor;
-				rayPayload.normal	= surfaceData.normalWS;
+				rayPayload.color		= bsdfData.diffuseColor;
+				rayPayload.emission		= builtinData.emissiveColor;
+				rayPayload.normal		= surfaceData.normalWS;
 			}
 			  
 			ENDHLSL

@@ -33,11 +33,17 @@ Shader "FullScreen/Compose"
 	// float SampleCustomDepth(float2 uv);
 
 	uniform sampler2D _SSProbes;
+	uniform sampler2D _SSProbesFiltered;
+	uniform sampler2D _SurfaceBRDF;
+	uniform sampler2D _LightningPDF;
+
 	uniform sampler3D _SHAtlasR;
 	uniform sampler3D _SHAtlasG;
 	uniform sampler3D _SHAtlasB;
 
 	TEXTURE2D_X(_GBufferTexture0);
+	TEXTURE2D_X(_GBufferTexture1);
+	TEXTURE2D_X(_GBufferTexture2);
 
 	uniform				float		_Exposure;
 
@@ -50,7 +56,13 @@ Shader "FullScreen/Compose"
 	uniform				int			_DistancePlaneWeighting;
 
 	uniform				int			_VisualizeDistancePlaneWeighting;
+
 	uniform				int			_VisualizeProbes;
+	uniform				int			_VisualizeSurfaceBRDF;
+	uniform				int			_VisualizeLightningPDF;
+
+	uniform				int			_Reflections;
+	uniform				bool		_VisualizeWorldProbes;
 
 	static float2 closestPixels[9] =
 	{
@@ -108,6 +120,31 @@ Shader "FullScreen/Compose"
 		return exp2(-1000000 * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
 	}
 
+	//  Compare probe vs pixel distance and normal.
+	//
+	float DistancePlaneWeighting2(float3 fromNormal, float3 fromWorldPosition, float fromDepth, float3 toWorldPosition)
+	{
+		float4	probeScenePlane				= float4(fromNormal, dot(fromWorldPosition, fromNormal));
+
+		float	planeDistance				= abs(dot(float4(toWorldPosition, -1), probeScenePlane));
+		float	relativeDepthDifference		= planeDistance / fromDepth;
+
+		return exp2(-1000000 * (relativeDepthDifference * relativeDepthDifference));
+	}
+
+	int GetWorldProbePixel(float2 positionNDC, float2 positionCS)
+	{
+		float3 worldPosition;
+		GetNormalDepth(positionCS, worldPosition);
+
+		if (abs(worldPosition.x) % 1 < 0.1f &&
+			abs(worldPosition.y) % 1 < 0.1f &&
+			abs(worldPosition.z) % 1 < 0.1f)
+			return 1;
+
+		return 0;
+	}
+
     // There are also a lot of utility function you can use inside Common.hlsl and Color.hlsl,
     // you can check them out in the source code of the core SRP package.
     float4 FullScreenPass(Varyings varyings) : SV_Target
@@ -118,12 +155,20 @@ Shader "FullScreen/Compose"
 		float3	worldPosition		= 0;
 		float4  pixelNormalDepth	= GetNormalDepth(positionCS, worldPosition);
 
-		if (_VisualizeProbes)
-		{
-			return tex2D(_SSProbes, positionNDC);
-		}
+		if (_VisualizeWorldProbes)
+			return GetWorldProbePixel(positionNDC, positionCS);
 
-		if (pixelNormalDepth.w == 1)
+		if (_VisualizeProbes)
+			return tex2D(_SSProbes, positionNDC);
+
+		if (_VisualizeSurfaceBRDF)
+			return tex2D(_SurfaceBRDF, positionNDC);
+
+		if (_VisualizeLightningPDF)
+			return tex2D(_LightningPDF, positionNDC);
+
+		// todo: multiply by camera range.
+		if (pixelNormalDepth.w >= _ProjectionParams.z)
 			return float4(0, 0, 0, 1);
 		
 		// this probe data.
@@ -134,15 +179,16 @@ Shader "FullScreen/Compose"
 		// ------- weight probes for distance normal to find best matching one ----- //
 		if (_DistancePlaneWeighting)
 		{
-			int distanceWeight = DistancePlaneWeighting(probeNormalDepth.xyz, probeWorldPosition, probeNormalDepth.w, worldPosition);
+			float distanceWeight	= DistancePlaneWeighting2(probeNormalDepth.xyz, probeWorldPosition, probeNormalDepth.w, worldPosition);
 
-			if (distanceWeight == 0)
+			if (distanceWeight <= 0.1)
 			{
 				if (_VisualizeDistancePlaneWeighting)
 					return 1;
 
 				float	closestProbeDistance	= 1;
 				float2	closestPositionNDC		= positionNDC;
+				float	biggestWeight			= distanceWeight;
 
 				for (int i = 1; i < 9; i++)
 				{
@@ -151,9 +197,14 @@ Shader "FullScreen/Compose"
 					float3	neighbourWorldPosition				= 0;
 					float4	neighbourProbeNormalDepth			= GetNormalDepth(neighbourProbeNDC * _ProbeLayoutResolution, neighbourWorldPosition);
 
-					int		neighbourProbeDistanceWeight		= DistancePlaneWeighting(neighbourProbeNormalDepth.xyz, neighbourWorldPosition, neighbourProbeNormalDepth.w, worldPosition);
+					float	neighbourProbeDistanceWeight		= DistancePlaneWeighting2(neighbourProbeNormalDepth.xyz, neighbourWorldPosition, neighbourProbeNormalDepth.w, worldPosition);
 
-					if (neighbourProbeDistanceWeight == 1)
+					if (biggestWeight < neighbourProbeDistanceWeight)
+					{
+						biggestWeight		= neighbourProbeDistanceWeight;
+						closestPositionNDC	= neighbourProbeNDC;
+					}
+					/*if (neighbourProbeDistanceWeight == 1)
 					{
 						float probeDistanceToPixel = length(positionNDC - neighbourProbeNDC);
 						if (probeDistanceToPixel < closestProbeDistance)
@@ -161,7 +212,7 @@ Shader "FullScreen/Compose"
 							closestProbeDistance	= probeDistanceToPixel;
 							closestPositionNDC		= neighbourProbeNDC;
 						}
-					}
+					}*/
 				}
 
 				positionNDC = closestPositionNDC;
@@ -185,16 +236,29 @@ Shader "FullScreen/Compose"
 		float4 gBufferAlbedo = LOAD_TEXTURE2D_X(_GBufferTexture0, positionCS);
 		gBufferAlbedo = max(0.01, gBufferAlbedo);
 
-		float3	exposure	= /*GetCurrentExposureMultiplier() * */_Exposure;
+		//float3	exposure	= /*GetCurrentExposureMultiplier() * */_Exposure;
+		//float	exposureMult = GetCurrentExposureMultiplier();
 
-		float3	radiance	= calcIrradiance(pixelNormalDepth.xyz, sh9Color) * gBufferAlbedo.rgb * exposure;
-
-		//float3	viewVector		= normalize(worldPosition - _WorldSpaceCameraPos);
-		//float3	reflectVector	= reflect(viewVector, normalize(pixelNormalDepth.xyz));
-		//float3	reflection		= calcIrradiance(reflectVector.xyz, sh9Color) * exposure;
+		float3	radiance = calcIrradiance(pixelNormalDepth.xyz, sh9Color) * gBufferAlbedo.rgb * _Exposure;// *exposure;
 
 
-		return float4(radiance, 1);
+		if (_Reflections)
+		{
+			float	gBufferRoughness		= LOAD_TEXTURE2D_X(_GBufferTexture1, positionCS).w;
+
+			float3	viewVector			= normalize(worldPosition - _WorldSpaceCameraPos);
+			float3	reflectVector		= reflect(viewVector, normalize(pixelNormalDepth.xyz));
+			float2	octaUV				= OctahedronUV(reflectVector) / _ProbeLayoutResolution * _ProbeSize;
+
+			//float3	reflection = tex2D(_SSProbesFiltered, probeNDC + octaUV).rgb;
+			float3	reflection			= calcIrradiance(reflectVector, sh9Color) * _Exposure;
+
+			return float4(lerp(reflection, radiance, gBufferRoughness), 1);
+		}
+		else
+		{
+			return float4(radiance, 1);
+		}
     }
 
     ENDHLSL

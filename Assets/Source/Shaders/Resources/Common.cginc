@@ -117,6 +117,7 @@ float2 rand_2_0004(in float2 uv)
 struct RayPayload
 {
 	float3  color;
+	float3	emission;
 	float3	normal;
 	float	distance;
 };

@@ -30,20 +30,24 @@ void SSFiltering(uint3 id : SV_DispatchThreadID)
 
 			float4	radiance	= _SSProbes[index + uint2(x, y)];
 
-			SH9Color sh9Color = genLightingCoefficientsForNormal(direction, radiance.rgb);
+			if (radiance.w != 0)
+			{
+				SH9Color sh9Color = genLightingCoefficientsForNormal(direction, radiance.rgb);
 
-			shOutput.sh0 += sh9Color.sh0;
-			shOutput.sh1 += sh9Color.sh1;
-			shOutput.sh2 += sh9Color.sh2;
-			shOutput.sh3 += sh9Color.sh3;
-			shOutput.sh4 += sh9Color.sh4;
-			shOutput.sh5 += sh9Color.sh5;
-			shOutput.sh6 += sh9Color.sh6;
-			shOutput.sh7 += sh9Color.sh7;
-			shOutput.sh8 += sh9Color.sh8;
+				shOutput.sh0 += sh9Color.sh0;
+				shOutput.sh1 += sh9Color.sh1;
+				shOutput.sh2 += sh9Color.sh2;
+				shOutput.sh3 += sh9Color.sh3;
+				shOutput.sh4 += sh9Color.sh4;
+				shOutput.sh5 += sh9Color.sh5;
+				shOutput.sh6 += sh9Color.sh6;
+				shOutput.sh7 += sh9Color.sh7;
+				shOutput.sh8 += sh9Color.sh8;
 
+				mixedColor += radiance;
+			}
+				
 			weightSum += 1;// luminance(radiance.rgb) * 3;
-			mixedColor += radiance;
 		}
 	}
 

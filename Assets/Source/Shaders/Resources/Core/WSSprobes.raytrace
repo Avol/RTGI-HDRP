@@ -69,8 +69,6 @@ uniform				float		_TemporalWeight;
 uniform				bool		_ImportanceSampling;
 uniform				float		_Exposure;
 
-uniform				bool		_UseShadowMaps;
-
 // Retrieves world space normal and linear depth.
 // @ positionCS = screen space UV coordinate.
 float4 GetNormalDepth(float2 positionCS, out float3 worldPosition)
@@ -154,19 +152,11 @@ float3 LightLoop(float3 positionWS, float3 normalWS)
 			posInput.positionSS = 0;
 			float3 normalWS		= 0;
 
-			// NOTE:	if point outside of camera view, outside of shadow view, do traced shadow. 
-			//			this will probably not improve performance due to tracing lanes paralelization.
-			// NOTE:	tracing is probably not needed for non directional lights.
-			if (_UseShadowMaps)
-			{
-				context.shadowValue =	GetDirectionalShadowAttenuation(context.shadowContext,
-																		posInput.positionSS, posInput.positionWS, normalWS,
-																		light.shadowIndex, L);
-			}
-			else
-			{
-				context.shadowValue = traceShadow(positionWS);
-			}
+			// TODO: if point outside of camera view, outside of shadow view, do traced shadow.
+			// NOTE: tracing is probably not needed for non directional lights.
+			context.shadowValue = traceShadow(positionWS); //GetDirectionalShadowAttenuation(	context.shadowContext,
+															//		posInput.positionSS, posInput.positionWS, normalWS,
+															//		light.shadowIndex, L);
 
 
 			SHADOW_TYPE shadow = EvaluateShadow_Directional(context, posInput, light, unused, normalWS);

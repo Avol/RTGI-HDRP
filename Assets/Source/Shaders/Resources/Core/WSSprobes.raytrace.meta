@@ -1,8 +1,8 @@
 fileFormatVersion: 2
-guid: 1b405575c1e50483e8a9a33b22dcd16b
-folderAsset: yes
-DefaultImporter:
+guid: de07afa470994be4a8f482682ace7e82
+RayTracingShaderImporter:
   externalObjects: {}
+  currentAPIMask: 0
   userData: 
   assetBundleName: 
   assetBundleVariant: 
