@@ -17,7 +17,7 @@ void SSFiltering(uint3 id : SV_DispatchThreadID)
 	uint2 index = id.xy * _ProbeSize;
 
 	float4 mixedColor = 0;
-
+	 
 	SH9Color shOutput;
 
 	float weightSum	= 0;
@@ -30,8 +30,8 @@ void SSFiltering(uint3 id : SV_DispatchThreadID)
 
 			float4	radiance	= _SSProbes[index + uint2(x, y)];
 
-			if (radiance.w != 0)
-			{
+			//if (radiance.w != 0)
+			//{
 				SH9Color sh9Color = genLightingCoefficientsForNormal(direction, radiance.rgb);
 
 				shOutput.sh0 += sh9Color.sh0;
@@ -45,7 +45,7 @@ void SSFiltering(uint3 id : SV_DispatchThreadID)
 				shOutput.sh8 += sh9Color.sh8;
 
 				mixedColor += radiance;
-			}
+			//}
 				
 			weightSum += 1;// luminance(radiance.rgb) * 3;
 		}
@@ -80,7 +80,6 @@ void SSFiltering(uint3 id : SV_DispatchThreadID)
 	_SHAtlasR[uint3(id.xy, 6)] = coeff6.r;
 	_SHAtlasR[uint3(id.xy, 7)] = coeff7.r;
 	_SHAtlasR[uint3(id.xy, 8)] = coeff8.r;
-
 
 	_SHAtlasG[uint3(id.xy, 0)] = coeff0.g;
 	_SHAtlasG[uint3(id.xy, 1)] = coeff1.g;

@@ -63,6 +63,7 @@ Shader "FullScreen/Compose"
 
 	uniform				int			_Reflections;
 	uniform				bool		_VisualizeWorldProbes;
+	uniform				bool		_TrilinearOffset;
 
 	static float2 closestPixels[9] =
 	{
@@ -105,6 +106,15 @@ Shader "FullScreen/Compose"
 		float2	t = floor(positionNDC * resolution);
 		float2	m = t % downscale;
 		float2	d = positionNDC - m / resolution;
+		return d;
+	}
+
+	// Clamps UV to smaller resolution.
+	// @ positionCS = screen space UV coordinate.
+	float2 ClampCoordinateBilinearCenter(float2 positionCS, float2 resolution, int downscale)
+	{
+		float2	m = positionCS - positionCS % downscale + downscale / 2;
+		float2	d = m / resolution;
 		return d;
 	}
 
@@ -187,7 +197,7 @@ Shader "FullScreen/Compose"
 					return 1;
 
 				float	closestProbeDistance	= 1;
-				float2	closestPositionNDC		= positionNDC;
+				float2	closestPositionNDC		= probeNDC;
 				float	biggestWeight			= distanceWeight;
 
 				for (int i = 1; i < 9; i++)
@@ -216,7 +226,28 @@ Shader "FullScreen/Compose"
 				}
 
 				positionNDC = closestPositionNDC;
+
+				if (_TrilinearOffset)
+					positionNDC = closestPositionNDC + _ProbeSize / 2.0f / _ProbeLayoutResolution;
 			}
+			else
+			{
+				//  TODO: when this pixel is on correct distance plane:
+				//		 test if direction of bilinear sampling distance plane is the same to blend.
+
+
+				//positionNDC = probeNDC;
+
+				//if (_TrilinearOffset)
+				//	positionNDC += _ProbeSize / 2.0f / _ProbeLayoutResolution;
+			}
+		}
+
+		else
+		{
+			//positionNDC = probeNDC;
+			if (_TrilinearOffset)
+				positionNDC = ClampCoordinateBilinearCenter(positionCS, _ProbeLayoutResolution, _ProbeSize);
 		}
 
 		// -------- sample diffuse harmonics ------------- //

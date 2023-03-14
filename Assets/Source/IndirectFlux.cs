@@ -41,6 +41,7 @@ namespace Avol.IndirectFlux
 		public bool		DistancePlaneWeightingReprojection	= true;
 		public bool		AngleWeightingReprojection			= true;
 		public bool		DistancePlaneWeightingCompose		= true;
+		public bool		TrilinearOffset						= true;
 
 		[Header("Visualize Debug")]
 		public bool		VisualizeDistancePlaneWeighting		= false;
@@ -187,7 +188,7 @@ namespace Avol.IndirectFlux
 		protected override void Execute(CustomPassContext ctx)
 		{
 			HWRT.WSProbes(ctx);
-
+			
 			if (TemporalFilter)
 			{
 				_Frame++;
@@ -312,6 +313,7 @@ namespace Avol.IndirectFlux
 			ctx.propertyBlock.SetInt("_VisualizeLightningPDF", VisualizeLightningPDF ? 1 : 0);
 			ctx.propertyBlock.SetInt("_Reflections", Reflections ? 1 : 0);
 			ctx.propertyBlock.SetInt("_VisualizeWorldProbes", VisualizeWorldProbes ? 1 : 0);
+			ctx.propertyBlock.SetInt("_TrilinearOffset", TrilinearOffset ? 1 : 0);
 
 			HDUtils.DrawFullScreen(ctx.cmd, _ComposeMaterial, ctx.cameraColorBuffer, ctx.propertyBlock, shaderPassId: DebugProbesColor ? 1 : 0);
 		}

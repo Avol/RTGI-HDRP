@@ -27,7 +27,7 @@ namespace Avol.IndirectFlux
 			SSProbesSHAtlasR.volumeDepth						= 9;
 			SSProbesSHAtlasR.dimension							= TextureDimension.Tex3D;
 			SSProbesSHAtlasR.enableRandomWrite					= true;
-			SSProbesSHAtlasR.filterMode							= FilterMode.Point;
+			SSProbesSHAtlasR.filterMode							= FilterMode.Trilinear;
 			SSProbesSHAtlasR.wrapMode							= TextureWrapMode.Clamp;
 			SSProbesSHAtlasR.anisoLevel							= 0;
 			SSProbesSHAtlasR.Create();
@@ -36,7 +36,7 @@ namespace Avol.IndirectFlux
 			SSProbesSHAtlasG.volumeDepth						= 9;
 			SSProbesSHAtlasG.dimension							= TextureDimension.Tex3D;
 			SSProbesSHAtlasG.enableRandomWrite					= true;
-			SSProbesSHAtlasG.filterMode							= FilterMode.Point;
+			SSProbesSHAtlasG.filterMode							= FilterMode.Trilinear;
 			SSProbesSHAtlasG.wrapMode							= TextureWrapMode.Clamp;
 			SSProbesSHAtlasG.anisoLevel							= 0;
 			SSProbesSHAtlasG.Create();
@@ -45,7 +45,7 @@ namespace Avol.IndirectFlux
 			SSProbesSHAtlasB.volumeDepth						= 9;
 			SSProbesSHAtlasB.dimension							= TextureDimension.Tex3D;
 			SSProbesSHAtlasB.enableRandomWrite					= true;
-			SSProbesSHAtlasB.filterMode							= FilterMode.Point;
+			SSProbesSHAtlasB.filterMode							= FilterMode.Trilinear;
 			SSProbesSHAtlasB.wrapMode							= TextureWrapMode.Clamp;
 			SSProbesSHAtlasB.anisoLevel							= 0;
 			SSProbesSHAtlasB.Create();
@@ -69,12 +69,13 @@ namespace Avol.IndirectFlux
 		public void SSProbesEcodePass(CustomPassContext ctx, RenderTexture SSProbesSource)
 		{
 			ctx.cmd.SetComputeTextureParam(_SSEncodingShader, 0, "_SSProbes", SSProbesSource);
+
 			ctx.cmd.SetComputeTextureParam(_SSEncodingShader, 0, "_SHAtlasR", SSProbesSHAtlasR);
 			ctx.cmd.SetComputeTextureParam(_SSEncodingShader, 0, "_SHAtlasG", SSProbesSHAtlasG);
 			ctx.cmd.SetComputeTextureParam(_SSEncodingShader, 0, "_SHAtlasB", SSProbesSHAtlasB);
 
 			ctx.cmd.SetComputeIntParam(_SSEncodingShader, "_ProbeSize", _IndirectFlux.SSProbeSize);
-			ctx.cmd.DispatchCompute(_SSEncodingShader, 0, _IndirectFlux.SSProbeLayoutResolution.x, _IndirectFlux.SSProbeLayoutResolution.y, 1);
+			ctx.cmd.DispatchCompute(_SSEncodingShader, 0, _IndirectFlux.SSProbeLayoutResolution.x / _IndirectFlux.SSProbeSize, _IndirectFlux.SSProbeLayoutResolution.y / _IndirectFlux.SSProbeSize, 1);
 		}
 	}
 }

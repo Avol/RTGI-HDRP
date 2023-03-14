@@ -133,7 +133,7 @@ float3 LightLoop(float3 positionWS, float3 normalWS)
     context.shadowValue      = 1;
     context.sampleReflection = 0;
     context.splineVisibility = -1;
-
+	 
 	float3 color = 0;
 
 	if (_DirectionalShadowIndex >= 0)
@@ -170,7 +170,7 @@ float3 LightLoop(float3 positionWS, float3 normalWS)
 
 
 			SHADOW_TYPE shadow = EvaluateShadow_Directional(context, posInput, light, unused, normalWS);
-			color += ComputeShadowColor(shadow, light.shadowTint, light.penumbraTint) * light.color * dotNL;
+			color += ComputeShadowColor(shadow, light.shadowTint, light.penumbraTint) * light.color;// * dotNL;
 		}
 	}
 

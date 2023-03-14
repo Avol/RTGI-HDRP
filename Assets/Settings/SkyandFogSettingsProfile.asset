@@ -185,7 +185,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d877a03bef431a847adca8ab343db3e1, type: 3}
   m_Name: RayTracingSettings
   m_EditorClassIdentifier: 
-  active: 1
+  active: 0
   rayBias:
     m_OverrideState: 0
     m_Value: 0.001
@@ -627,7 +627,7 @@ MonoBehaviour:
   active: 1
   indirectDiffuseLightingMultiplier:
     m_OverrideState: 1
-    m_Value: 0
+    m_Value: 1
   indirectDiffuseLightingLayers:
     m_OverrideState: 1
     m_Value: 65535
@@ -676,7 +676,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d7593b3a9277ac4696b20006c21dde2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  active: 1
+  active: 0
   skyType:
     m_OverrideState: 1
     m_Value: 4
@@ -710,7 +710,7 @@ MonoBehaviour:
   active: 0
   quality:
     m_OverrideState: 0
-    m_Value: 1
+    m_Value: 3
   enable:
     m_OverrideState: 1
     m_Value: 1
@@ -718,8 +718,8 @@ MonoBehaviour:
     m_OverrideState: 1
     m_Value: 2
   rayMiss:
-    m_OverrideState: 0
-    m_Value: 3
+    m_OverrideState: 1
+    m_Value: 0
   depthBufferThickness:
     m_OverrideState: 0
     m_Value: 0.1
@@ -742,13 +742,13 @@ MonoBehaviour:
     m_OverrideState: 0
     m_Value: 1
   lastBounceFallbackHierarchy:
-    m_OverrideState: 0
-    m_Value: 3
+    m_OverrideState: 1
+    m_Value: 0
   ambientProbeDimmer:
-    m_OverrideState: 0
+    m_OverrideState: 1
     m_Value: 0
   layerMask:
-    m_OverrideState: 0
+    m_OverrideState: 1
     m_Value:
       serializedVersion: 2
       m_Bits: 4294967295
@@ -756,40 +756,40 @@ MonoBehaviour:
     m_OverrideState: 0
     m_Value: 7
   m_RayLength:
-    m_OverrideState: 0
-    m_Value: 50
+    m_OverrideState: 1
+    m_Value: 100
   m_ClampValue:
     m_OverrideState: 0
     m_Value: 1
   mode:
-    m_OverrideState: 0
+    m_OverrideState: 1
     m_Value: 2
   m_FullResolution:
     m_OverrideState: 0
     m_Value: 0
   sampleCount:
-    m_OverrideState: 0
-    m_Value: 2
+    m_OverrideState: 1
+    m_Value: 1
   bounceCount:
-    m_OverrideState: 0
+    m_OverrideState: 1
     m_Value: 1
   m_Denoise:
-    m_OverrideState: 0
+    m_OverrideState: 1
     m_Value: 1
   m_HalfResolutionDenoiser:
-    m_OverrideState: 0
-    m_Value: 0
+    m_OverrideState: 1
+    m_Value: 1
   m_DenoiserRadius:
-    m_OverrideState: 0
+    m_OverrideState: 1
     m_Value: 0.6
   m_SecondDenoiserPass:
-    m_OverrideState: 0
+    m_OverrideState: 1
     m_Value: 1
   m_MaxMixedRaySteps:
     m_OverrideState: 0
     m_Value: 48
   receiverMotionRejection:
-    m_OverrideState: 0
+    m_OverrideState: 1
     m_Value: 1
 --- !u!114 &6370750669482191206
 MonoBehaviour:
