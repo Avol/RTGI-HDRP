@@ -1,0 +1,74 @@
+#pragma kernel DistancePlane
+
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/RenderPass/CustomPass/CustomPassCommon.hlsl"
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/NormalBuffer.hlsl"
+
+uniform				float2		_ScreenResolution;
+uniform				float2		_ProbeLayoutResolution;
+uniform				int			_ProbeSize;
+RWTexture2D<half> _DistancePlane;
+
+
+// Clamps UV to smaller resolution.
+// @ positionCS = screen space UV coordinate.
+float2 ClampCoordinate(float2 positionNDC, float2 resolution, int downscale)
+{
+	float2	t = floor(positionNDC * resolution);
+	float2	m = t % downscale;
+	float2	d = positionNDC - m / resolution;
+	return d;
+}
+
+// Retrieves world space normal and linear depth.
+// @ positionCS = screen space UV coordinate.
+float4 GetNormalDepth(float2 positionCS, out float3 worldPosition)
+{
+	float4 normalDepth = 0;
+
+	// load normal
+	NormalData normalData;
+	DecodeFromNormalBuffer(positionCS, normalData);
+	normalDepth.xyz = normalData.normalWS;
+
+	// load depth
+	float			depth = LoadCameraDepth(positionCS);
+	PositionInputs	posInput = GetPositionInput(positionCS, _ScreenSize.zw, depth, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
+	normalDepth.w = posInput.linearDepth;
+
+	worldPosition = posInput.positionWS + _WorldSpaceCameraPos;
+
+	return normalDepth;
+}
+
+//  Compare probe vs pixel distance and normal.
+//
+float DistancePlaneWeighting2(float3 fromNormal, float3 fromWorldPosition, float fromDepth, float3 toWorldPosition)
+{
+	float4	probeScenePlane = float4(fromNormal, dot(fromWorldPosition, fromNormal));
+
+	float	planeDistance = abs(dot(float4(toWorldPosition, -1), probeScenePlane));
+	float	relativeDepthDifference = planeDistance / fromDepth;
+
+	return exp2(-10000 * (relativeDepthDifference * relativeDepthDifference));
+}
+
+[numthreads(8,8,1)]
+void DistancePlane(uint3 id : SV_DispatchThreadID)
+{
+	// this pixel data.
+	float2	positionCS				= id.xy;
+	float2	positionNDC				= positionCS / _ScreenResolution;
+	float3	sceneWorldPosition		= 0;
+	float4  sceneNormalDepth		= GetNormalDepth(positionCS, sceneWorldPosition);
+	 
+	// this probe data.
+	float2	probeCS						= positionCS - positionCS % _ProbeSize;
+	float2	probeNDC					= ClampCoordinate(positionNDC, _ProbeLayoutResolution, _ProbeSize);
+	float3	probeWorldPosition			= 0;
+	float4  probeNormalDepth			= GetNormalDepth(probeNDC * _ProbeLayoutResolution, probeWorldPosition);
+
+	// ------- weight probes for distance normal to find best matching one ----- //
+	float distanceWeight	= DistancePlaneWeighting2(sceneNormalDepth.xyz, sceneWorldPosition, sceneNormalDepth.w, probeWorldPosition);
+
+	_DistancePlane[id.xy] = distanceWeight <= 0.1 ? 1 : 0; 
+}

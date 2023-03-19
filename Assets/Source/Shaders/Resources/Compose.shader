@@ -36,6 +36,7 @@ Shader "FullScreen/Compose"
 	uniform sampler2D _SSProbesFiltered;
 	uniform sampler2D _SurfaceBRDF;
 	uniform sampler2D _LightningPDF;
+	uniform sampler2D _DistancePlane;
 
 	uniform sampler3D _SHAtlasR;
 	uniform sampler3D _SHAtlasG;
@@ -64,6 +65,7 @@ Shader "FullScreen/Compose"
 	uniform				int			_Reflections;
 	uniform				bool		_VisualizeWorldProbes;
 	uniform				bool		_TrilinearOffset;
+	uniform				bool		_TrilinearOffset2;
 
 	static float2 closestPixels[9] =
 	{
@@ -127,7 +129,7 @@ Shader "FullScreen/Compose"
 		float	planeDistance				= abs(dot(float4(toWorldPosition, -1), probeScenePlane));
 		float	relativeDepthDifference		= planeDistance / fromDepth;
 
-		return exp2(-1000000 * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
+		return exp2(-10000 * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
 	}
 
 	//  Compare probe vs pixel distance and normal.
@@ -139,7 +141,7 @@ Shader "FullScreen/Compose"
 		float	planeDistance				= abs(dot(float4(toWorldPosition, -1), probeScenePlane));
 		float	relativeDepthDifference		= planeDistance / fromDepth;
 
-		return exp2(-1000000 * (relativeDepthDifference * relativeDepthDifference));
+		return exp2(-10000 * (relativeDepthDifference * relativeDepthDifference));
 	}
 
 	int GetWorldProbePixel(float2 positionNDC, float2 positionCS)
@@ -155,6 +157,18 @@ Shader "FullScreen/Compose"
 		return 0;
 	}
 
+	bool checkProbeBlendMatch(float2 probeNDC, float2 dir, float4 sceneNormalDepth, float3 sceneWorldPosition)
+	{
+		float2	neighbourProbeNDC				= probeNDC + (dir / _ProbeLayoutResolution * _ProbeSize);
+
+		float3	neighbourWorldPosition			= 0;
+		float4	neighbourProbeNormalDepth		= GetNormalDepth(neighbourProbeNDC * _ProbeLayoutResolution, neighbourWorldPosition);
+
+		float	neighbourProbeDistanceWeight	= DistancePlaneWeighting2(sceneNormalDepth.xyz, sceneWorldPosition, sceneNormalDepth.w, neighbourWorldPosition);
+
+		return neighbourProbeDistanceWeight < 0.1f;
+	}
+
     // There are also a lot of utility function you can use inside Common.hlsl and Color.hlsl,
     // you can check them out in the source code of the core SRP package.
     float4 FullScreenPass(Varyings varyings) : SV_Target
@@ -162,8 +176,8 @@ Shader "FullScreen/Compose"
 		// this pixel data.
 		float2	positionCS			= varyings.positionCS.xy;
 		float2	positionNDC			= positionCS / _ScreenResolution;
-		float3	worldPosition		= 0;
-		float4  pixelNormalDepth	= GetNormalDepth(positionCS, worldPosition);
+		float3	sceneWorldPosition	= 0;
+		float4  sceneNormalDepth	= GetNormalDepth(positionCS, sceneWorldPosition);
 
 		if (_VisualizeWorldProbes)
 			return GetWorldProbePixel(positionNDC, positionCS);
@@ -178,10 +192,11 @@ Shader "FullScreen/Compose"
 			return tex2D(_LightningPDF, positionNDC);
 
 		// todo: multiply by camera range.
-		if (pixelNormalDepth.w >= _ProjectionParams.z)
+		if (sceneNormalDepth.w >= _ProjectionParams.z)
 			return float4(0, 0, 0, 1);
 		
 		// this probe data.
+		float2	probeCS						= positionCS - positionCS % _ProbeSize;
 		float2	probeNDC					= ClampCoordinate(positionNDC, _ProbeLayoutResolution, _ProbeSize);
 		float3	probeWorldPosition			= 0;
 		float4  probeNormalDepth			= GetNormalDepth(probeNDC * _ProbeLayoutResolution, probeWorldPosition);
@@ -189,7 +204,7 @@ Shader "FullScreen/Compose"
 		// ------- weight probes for distance normal to find best matching one ----- //
 		if (_DistancePlaneWeighting)
 		{
-			float distanceWeight	= DistancePlaneWeighting2(probeNormalDepth.xyz, probeWorldPosition, probeNormalDepth.w, worldPosition);
+			float distanceWeight	= DistancePlaneWeighting2(sceneNormalDepth.xyz, sceneWorldPosition, sceneNormalDepth.w, probeWorldPosition);
 
 			if (distanceWeight <= 0.1)
 			{
@@ -207,39 +222,177 @@ Shader "FullScreen/Compose"
 					float3	neighbourWorldPosition				= 0;
 					float4	neighbourProbeNormalDepth			= GetNormalDepth(neighbourProbeNDC * _ProbeLayoutResolution, neighbourWorldPosition);
 
-					float	neighbourProbeDistanceWeight		= DistancePlaneWeighting2(neighbourProbeNormalDepth.xyz, neighbourWorldPosition, neighbourProbeNormalDepth.w, worldPosition);
+					float	neighbourProbeDistanceWeight		= DistancePlaneWeighting2(sceneNormalDepth.xyz, sceneWorldPosition, sceneNormalDepth.w, neighbourWorldPosition);
 
 					if (biggestWeight < neighbourProbeDistanceWeight)
 					{
 						biggestWeight		= neighbourProbeDistanceWeight;
 						closestPositionNDC	= neighbourProbeNDC;
 					}
-					/*if (neighbourProbeDistanceWeight == 1)
-					{
-						float probeDistanceToPixel = length(positionNDC - neighbourProbeNDC);
-						if (probeDistanceToPixel < closestProbeDistance)
-						{
-							closestProbeDistance	= probeDistanceToPixel;
-							closestPositionNDC		= neighbourProbeNDC;
-						}
-					}*/
 				}
 
 				positionNDC = closestPositionNDC;
 
 				if (_TrilinearOffset)
-					positionNDC = closestPositionNDC + _ProbeSize / 2.0f / _ProbeLayoutResolution;
+					positionNDC = ClampCoordinateBilinearCenter(positionNDC * _ProbeLayoutResolution, _ProbeLayoutResolution, _ProbeSize);
 			}
 			else
 			{
 				//  TODO: when this pixel is on correct distance plane:
 				//		 test if direction of bilinear sampling distance plane is the same to blend.
 
+				if (_TrilinearOffset)
+				{
+					if (_TrilinearOffset2)
+					{
+						float2 offsetNDC = probeNDC + _ProbeSize / 2.0f / _ProbeLayoutResolution - positionNDC;
+						uint2 missmatch = uint2(0, 0);
 
-				//positionNDC = probeNDC;
+						// left, right
+						if (offsetNDC.x > 0)
+						{
+							if (checkProbeBlendMatch(probeNDC, float2(-1, 0), sceneNormalDepth, sceneWorldPosition))
+								missmatch.x = 1;
+						}
+						else
+						{
+							if (checkProbeBlendMatch(probeNDC, float2(1, 0), sceneNormalDepth, sceneWorldPosition))
+								missmatch.x = 1;
+						}
 
-				//if (_TrilinearOffset)
-				//	positionNDC += _ProbeSize / 2.0f / _ProbeLayoutResolution;
+						// down, up
+						if (offsetNDC.y > 0)
+						{
+							if (checkProbeBlendMatch(probeNDC, float2(0, -1), sceneNormalDepth, sceneWorldPosition))
+								missmatch.y = 1;
+						}
+						else
+						{
+							if (checkProbeBlendMatch(probeNDC, float2(0, 1), sceneNormalDepth, sceneWorldPosition))
+								missmatch.y = 1;
+						}
+
+						// down left
+						if (offsetNDC.y > 0 && offsetNDC.x > 0)
+						{
+							if (checkProbeBlendMatch(probeNDC, float2(-1, -1), sceneNormalDepth, sceneWorldPosition))
+								missmatch = uint2(1, 1);
+						}
+
+						// up left
+						if (offsetNDC.y <= 0 && offsetNDC.x > 0)
+						{
+							if (checkProbeBlendMatch(probeNDC, float2(-1, 1), sceneNormalDepth, sceneWorldPosition))
+								missmatch = uint2(1, 1);
+						}
+
+						// up right
+						if (offsetNDC.y <= 0 && offsetNDC.x <= 0)
+						{
+							if (checkProbeBlendMatch(probeNDC, float2(1, 1), sceneNormalDepth, sceneWorldPosition))
+								missmatch = uint2(1, 1);
+						}
+
+						// down right
+						if (offsetNDC.y > 0 && offsetNDC.x <= 0)
+						{
+							if (checkProbeBlendMatch(probeNDC, float2(1, -1), sceneNormalDepth, sceneWorldPosition))
+								missmatch = uint2(1, 1);
+						}
+
+
+
+
+						if (missmatch.x != 0 || missmatch.y != 0)
+						{
+							//return 1;
+							float2 clampedPositionNDC = ClampCoordinateBilinearCenter(positionCS, _ProbeLayoutResolution, _ProbeSize);
+
+							positionNDC.x = missmatch.x == 1 ? clampedPositionNDC.x : positionNDC.x;
+							positionNDC.y = missmatch.y == 1 ? clampedPositionNDC.y : positionNDC.y;
+						}
+
+						// TODO: compare neighbour probe distance plane anyways.
+
+						/*
+
+						bool checkLeft = false;
+						bool checkDown = false;
+
+						uint2 missmatch = uint2(0, 0);
+
+
+						
+						
+						
+
+						// check left
+						//if (offsetNDC.x > 0)
+						 {
+							float distancePlane = tex2D(_DistancePlane, (probeCS - float2(_ProbeSize/2, 0)) / _ProbeLayoutResolution);
+							if (distancePlane == 1)
+								missmatch.x = 1;
+						}
+
+						// check right
+						{
+							float distancePlane = tex2D(_DistancePlane, (probeCS + float2(_ProbeSize / 2, 0)) / _ProbeLayoutResolution);
+							if (distancePlane == 1)
+								missmatch.x = 1;
+						}
+
+						// check down
+						//if (offsetNDC.x > 0)
+						{
+							checkDown = true;
+
+							float distancePlane = tex2D(_DistancePlane, (probeCS - float2(0, _ProbeSize / 2)) / _ProbeLayoutResolution);
+							if (distancePlane == 1)
+								missmatch.y = 1;
+						}
+
+						// check up
+						{
+							float distancePlane = tex2D(_DistancePlane, (probeCS + float2(0, _ProbeSize / 2)) / _ProbeLayoutResolution);
+							if (distancePlane == 1)
+								missmatch.y = 1;
+						}
+
+						
+						//if (checkLeft && checkDown)
+						{
+							float distancePlane = tex2D(_DistancePlane, (probeCS - float2(_ProbeSize / 2, _ProbeSize / 2)) / _ProbeLayoutResolution);
+							if (distancePlane == 1)
+								missmatch.x = 1;
+						}
+						//if (checkLeft && !checkDown)
+						{
+							float distancePlane = tex2D(_DistancePlane, (probeCS - float2(_ProbeSize / 2, -_ProbeSize / 2)) / _ProbeLayoutResolution);
+							if (distancePlane == 1)
+								missmatch.x = 1;
+						}
+
+						//if (!checkLeft && !checkDown)
+						{
+							float distancePlane = tex2D(_DistancePlane, (probeCS - float2(-_ProbeSize / 2, -_ProbeSize / 2)) / _ProbeLayoutResolution);
+							if (distancePlane == 1)
+								missmatch.x = 1;
+						}
+						//if (!checkLeft && checkDown)
+						{
+							float distancePlane = tex2D(_DistancePlane, (probeCS - float2(-_ProbeSize / 2, _ProbeSize / 2)) / _ProbeLayoutResolution);
+							if (distancePlane == 1)
+								missmatch.x = 1;
+						}
+
+						if (missmatch.x != 0 || missmatch.y != 0)
+						{
+							//return 1;
+							positionNDC = ClampCoordinateBilinearCenter(positionCS, _ProbeLayoutResolution, _ProbeSize);
+						}
+						*/
+					}
+				}
 			}
 		}
 
@@ -270,15 +423,15 @@ Shader "FullScreen/Compose"
 		//float3	exposure	= /*GetCurrentExposureMultiplier() * */_Exposure;
 		//float	exposureMult = GetCurrentExposureMultiplier();
 
-		float3	radiance = calcIrradiance(pixelNormalDepth.xyz, sh9Color) * gBufferAlbedo.rgb * _Exposure;// *exposure;
+		float3	radiance = calcIrradiance(sceneNormalDepth.xyz, sh9Color) * gBufferAlbedo.rgb * _Exposure;// *exposure;
 
 
 		if (_Reflections)
 		{
 			float	gBufferRoughness		= LOAD_TEXTURE2D_X(_GBufferTexture1, positionCS).w;
 
-			float3	viewVector			= normalize(worldPosition - _WorldSpaceCameraPos);
-			float3	reflectVector		= reflect(viewVector, normalize(pixelNormalDepth.xyz));
+			float3	viewVector			= normalize(sceneWorldPosition - _WorldSpaceCameraPos);
+			float3	reflectVector		= reflect(viewVector, normalize(sceneNormalDepth.xyz));
 			float2	octaUV				= OctahedronUV(reflectVector) / _ProbeLayoutResolution * _ProbeSize;
 
 			//float3	reflection = tex2D(_SSProbesFiltered, probeNDC + octaUV).rgb;
