@@ -8,7 +8,7 @@
 #include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/Builtin/BuiltinData.hlsl"
 
 #include "../Octahedron.cginc"
-#include "../Common.cginc"
+#include "../Raytracing.cginc"
 
 Texture2D<float4>		_SSProbes;
 RWTexture2D<float4>		_SSProbesUnpacked;

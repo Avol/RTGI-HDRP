@@ -62,6 +62,7 @@ namespace Avol.IndirectFlux
 
 				ctx.cmd.SetComputeIntParam(_SSFilteringShader, "_DistancePlaneWeighting", _IndirectFlux.DistancePlaneWeightingReprojection ? 1 : 0);
 				ctx.cmd.SetComputeIntParam(_SSFilteringShader, "_AngleWeighting", _IndirectFlux.AngleWeightingReprojection ? 1 : 0);
+				ctx.cmd.SetComputeIntParam(_SSFilteringShader, "_NormalWeight", _IndirectFlux.NormalWeight ? 1 : 0);
 
 				ctx.cmd.DispatchCompute(_SSFilteringShader, 1, _IndirectFlux.SSProbeLayoutResolution.x, _IndirectFlux.SSProbeLayoutResolution.y, 1);
 			}

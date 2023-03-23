@@ -34,6 +34,7 @@ namespace Avol.IndirectFlux
 		public bool		EnableImportanceSampling			= true;
 
 		[Header("Debug Features")]
+		public bool		DiffuseGI							= false;
 		public bool		Reflections							= false;
 		public bool		UseShadowMaps						= false;
 
@@ -43,6 +44,7 @@ namespace Avol.IndirectFlux
 		public bool		DistancePlaneWeightingCompose		= true;
 		public bool		TrilinearOffset						= true;
 		public bool		TrilinearOffset2					= true;
+		public bool		NormalWeight						= true;
 
 		[Header("Visualize Debug")]
 		public bool		VisualizeDistancePlaneWeighting		= false;
@@ -55,8 +57,6 @@ namespace Avol.IndirectFlux
 
 		[Header("Debug Probes")]
 		public	RenderTexture	_HistoryNormalDepth;
-		public	RenderTexture	_DistancePlane;
-
 
 		public	RenderTexture	_SSProbesRadiance;
 		public	RenderTexture	_SSProbesRadianceUnpacked;
@@ -79,8 +79,6 @@ namespace Avol.IndirectFlux
 		private Shader													_CopyNormalDepthShader;
 		private Material												_CopyNormalDepthMaterial;
 
-
-		private ComputeShader											_DistancePlaneShader;
 
 		public int _Frame;
 
@@ -129,13 +127,6 @@ namespace Avol.IndirectFlux
 			_HistoryNormalDepth.anisoLevel						= 0;
 			_HistoryNormalDepth.Create();
 
-			_DistancePlane										= new RenderTexture(SSProbeLayoutResolution.x, SSProbeLayoutResolution.y, 1, RenderTextureFormat.R8, RenderTextureReadWrite.Default);
-			_DistancePlane.enableRandomWrite					= true;
-			_DistancePlane.filterMode							= FilterMode.Point;
-			_DistancePlane.anisoLevel							= 0;
-			_DistancePlane.Create();
-
-
 			_SSProbesRadiance									= new RenderTexture(SSProbeLayoutResolution.x, SSProbeLayoutResolution.y, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Default);
 			_SSProbesRadiance.enableRandomWrite					= true;
 			_SSProbesRadiance.filterMode						= FilterMode.Bilinear;
@@ -182,8 +173,6 @@ namespace Avol.IndirectFlux
 			_CopyNormalDepthShader		= Resources.Load<Shader>("CopyNormalDepth");
 			_CopyNormalDepthMaterial	= new Material(_CopyNormalDepthShader);
 
-			_DistancePlaneShader		= Resources.Load<ComputeShader>("Core/SSDistancePlane");
-
 			HWRT		= new HWRT(this);
 			HWRT.Setup();
 
@@ -211,8 +200,6 @@ namespace Avol.IndirectFlux
 			{
 				_Frame = 0;
 			}
-
-			_ComputeDistancePlane(ctx);
 
 			if (EnableImportanceSampling)
 			{
@@ -260,7 +247,6 @@ namespace Avol.IndirectFlux
 
 			_WSProbesAtlas.Release();
 			_WSProbesRadiance.Release();
-			_DistancePlane.Release();
 
 
 			_HistoryNormalDepth.DiscardContents();
@@ -272,7 +258,6 @@ namespace Avol.IndirectFlux
 
 			_WSProbesAtlas.DiscardContents();
 			_WSProbesRadiance.DiscardContents();
-			_DistancePlane.DiscardContents();
 
 			_HistoryNormalDepth			= null;
 
@@ -283,7 +268,6 @@ namespace Avol.IndirectFlux
 
 			_WSProbesAtlas				= null;
 			_WSProbesRadiance			= null;
-			_DistancePlane				= null;
 
 			CoreUtils.Destroy(_ComposeMaterial);
 
@@ -298,15 +282,6 @@ namespace Avol.IndirectFlux
 			CoreUtils.DrawFullScreen(ctx.cmd, _CopyNormalDepthMaterial, _HistoryNormalDepth, ctx.propertyBlock, shaderPassId: 0);
 
 			//HDUtils.DrawFullScreen(ctx.cmd, new Rect(0, 0, ctx.hdCamera.camera.pixelWidth, ctx.hdCamera.camera.pixelHeight), _CopyNormalDepthMaterial, _HistoryNormalDepth, ctx.propertyBlock, shaderPassId: 0);
-		}
-
-		private void _ComputeDistancePlane(CustomPassContext ctx)
-		{
-			ctx.cmd.SetComputeVectorParam(_DistancePlaneShader, "_ProbeLayoutResolution", new Vector2(_SSProbesReprojected.width, _SSProbesReprojected.height));
-			ctx.cmd.SetComputeVectorParam(_DistancePlaneShader, "_ScreenResolution", new Vector2(ctx.hdCamera.actualWidth, ctx.hdCamera.actualHeight));
-			ctx.cmd.SetComputeTextureParam(_DistancePlaneShader, 0, "_DistancePlane", _DistancePlane);
-			ctx.cmd.SetComputeIntParam(_DistancePlaneShader, "_ProbeSize", SSProbeSize);
-			ctx.cmd.DispatchCompute(_DistancePlaneShader, 0, SSProbeLayoutResolution.x / 8, SSProbeLayoutResolution.y / 8, 1);
 		}
 
 		private void _ComposePass(CustomPassContext ctx)
@@ -335,13 +310,18 @@ namespace Avol.IndirectFlux
 
 			ctx.propertyBlock.SetInt("_VisualizeSurfaceBRDF", VisualizeSurfaceBRDF ? 1 : 0);
 			ctx.propertyBlock.SetInt("_VisualizeLightningPDF", VisualizeLightningPDF ? 1 : 0);
+
+			
+
+			ctx.propertyBlock.SetInt("_DiffuseGI", DiffuseGI ? 1 : 0);
 			ctx.propertyBlock.SetInt("_Reflections", Reflections ? 1 : 0);
+
+
 			ctx.propertyBlock.SetInt("_VisualizeWorldProbes", VisualizeWorldProbes ? 1 : 0);
 			ctx.propertyBlock.SetInt("_TrilinearOffset", TrilinearOffset ? 1 : 0);
 			ctx.propertyBlock.SetInt("_TrilinearOffset2", TrilinearOffset2 ? 1 : 0);
 
-			ctx.propertyBlock.SetTexture("_DistancePlane", _DistancePlane);
-
+			ctx.propertyBlock.SetInt("_NormalWeight", NormalWeight ? 1 : 0);
 
 
 			HDUtils.DrawFullScreen(ctx.cmd, _ComposeMaterial, ctx.cameraColorBuffer, ctx.propertyBlock, shaderPassId: DebugProbesColor ? 1 : 0);

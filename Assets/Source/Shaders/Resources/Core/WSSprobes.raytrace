@@ -1,4 +1,4 @@
-﻿#include "../Common.cginc"
+﻿#include "../Raytracing.cginc"
 #include "../Octahedron.cginc"
 
 //--------------------------------------------------------------------------------------------------
@@ -197,8 +197,8 @@ float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay)
 
 		TraceRay(_RaytracingAccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, RAYTRACING_OPAQUE_FLAG, 0, 1, 0, rayDescriptor, rayIntersection);
 
-		if (rayIntersection.distance < 0.0001)
-			continue;
+		//if (rayIntersection.distance < 0.0001)
+		//	continue;
 
 		float3	hitPosition		= worldPos + jitteredOctaRay * (rayIntersection.distance - 0.0001);
 

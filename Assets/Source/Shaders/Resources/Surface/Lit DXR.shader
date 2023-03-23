@@ -1298,7 +1298,7 @@ Shader "HDRP/Lit DXR"
 
 			HLSLPROGRAM
 
-			#include "../Common.cginc"
+			#include "../Raytracing.cginc"
 
 
 

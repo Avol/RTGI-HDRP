@@ -1,4 +1,4 @@
-﻿#include "../Common.cginc"
+﻿#include "../Raytracing.cginc"
 #include "../Octahedron.cginc"
 
 //--------------------------------------------------------------------------------------------------
@@ -68,6 +68,7 @@ uniform				float		_BounceDistance;
 uniform				float		_TemporalWeight;
 uniform				bool		_ImportanceSampling;
 uniform				float		_Exposure;
+uniform				bool		_NormalWeight;
 
 uniform				bool		_UseShadowMaps;
 
@@ -101,7 +102,19 @@ int DistancePlaneWeighting(float3 fromNormal, float3 fromWorldPosition, float fr
 	float	planeDistance				= abs(dot(float4(toWorldPosition, -1), probeScenePlane));
 	float	relativeDepthDifference		= planeDistance / fromDepth;
 
-	return exp2(-1000000 * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
+	return exp2(-100000 * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
+}
+
+//  Compare probe vs pixel distance and normal.
+//
+float DistancePlaneWeighting2(float3 fromNormal, float3 fromWorldPosition, float fromDepth, float3 toWorldPosition)
+{
+	float4	probeScenePlane				= float4(fromNormal, dot(fromWorldPosition, fromNormal));
+
+	float	planeDistance				= abs(dot(float4(toWorldPosition, -1), probeScenePlane));
+	float	relativeDepthDifference		= planeDistance / fromDepth;
+
+	return exp2(-100000 * (relativeDepthDifference * relativeDepthDifference));
 }
 
 int traceShadow(float3 worldPos)
@@ -165,7 +178,7 @@ float3 LightLoop(float3 positionWS, float3 normalWS)
 			}
 			else
 			{
-				context.shadowValue = traceShadow(positionWS);
+				//context.shadowValue = traceShadow(positionWS);
 			}
 
 
@@ -178,6 +191,9 @@ float3 LightLoop(float3 positionWS, float3 normalWS)
 }
 
 
+//
+//
+//
 float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay)
 {
 	const uint rayCount = _RayCount;
@@ -198,7 +214,7 @@ float4 trace(uint seed, float3 worldPos, float3 normal, float3 octaRay)
 		rayDescriptor.TMin			= 0;
 		rayDescriptor.TMax			= _MaxRayDistance;
 		rayDescriptor.Direction		= jitteredOctaRay;
-		rayDescriptor.Origin		= worldPos + normal * 0.0001;// + jitteredOctaRay * 0.01;
+		rayDescriptor.Origin		= worldPos + jitteredOctaRay * 0.01; //  normal * 0.0001;
 
 		// Create and init the RayIntersection structure for this
 		RayPayload	rayIntersection;
@@ -254,6 +270,7 @@ void SSRadiance()
 	float3 worldPosition	= 0;
 	float4 normalDepth		= GetNormalDepth(probeCS, worldPosition);
 
+	// TODO: jitter random available slots rather clamp to original point.
 	if (_TraceJitter)
 	{
 		uint2   positionCSNonJittered			= (dispatchIdx.xy - dispatchIdx.xy % _ProbeSize);
@@ -261,8 +278,16 @@ void SSRadiance()
 		float3	worldPositionNonJittered		= 0;
 		float4	normalDepthNonJittered			= GetNormalDepth(positionCSNonJittered, worldPositionNonJittered);
 
-		float weight = DistancePlaneWeighting(normalDepth.xyz, worldPosition, normalDepth.w, worldPositionNonJittered);
-		if (weight == 0)
+		float	weight							= DistancePlaneWeighting2(normalDepth.xyz, worldPosition, normalDepth.w, worldPositionNonJittered);
+
+		if (_NormalWeight)
+		{
+			float normalWeight = max(0, dot(normalDepthNonJittered.xyz, normalDepth.xyz));
+			if (weight > normalWeight)
+				weight = normalWeight;
+		}
+
+		if (weight <= 0.1)
 		{
 			worldPosition	= worldPositionNonJittered;
 			normalDepth		= normalDepthNonJittered;

@@ -82,6 +82,7 @@ namespace Avol.IndirectFlux
 			ctx.cmd.SetRayTracingFloatParam(_SSProbesShader, "_BounceDistance", _IndirectFlux.BounceDistance);
 			ctx.cmd.SetRayTracingFloatParam(_SSProbesShader, "_TemporalWeight", _IndirectFlux.TemporalWeight);
 			ctx.cmd.SetRayTracingFloatParam(_SSProbesShader, "_Exposure", _IndirectFlux.Exposure);
+			ctx.cmd.SetRayTracingIntParam(_SSProbesShader, "_NormalWeight", _IndirectFlux.NormalWeight ? 1 : 0);
 
 			ctx.cmd.SetRayTracingIntParam(_SSProbesShader, "_UseShadowMaps", _IndirectFlux.UseShadowMaps ? 1 : 0);
 

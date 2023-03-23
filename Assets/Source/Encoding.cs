@@ -27,7 +27,7 @@ namespace Avol.IndirectFlux
 			SSProbesSHAtlasR.volumeDepth						= 9;
 			SSProbesSHAtlasR.dimension							= TextureDimension.Tex3D;
 			SSProbesSHAtlasR.enableRandomWrite					= true;
-			SSProbesSHAtlasR.filterMode							= FilterMode.Trilinear;
+			SSProbesSHAtlasR.filterMode							= FilterMode.Bilinear;
 			SSProbesSHAtlasR.wrapMode							= TextureWrapMode.Clamp;
 			SSProbesSHAtlasR.anisoLevel							= 0;
 			SSProbesSHAtlasR.Create();
@@ -36,7 +36,7 @@ namespace Avol.IndirectFlux
 			SSProbesSHAtlasG.volumeDepth						= 9;
 			SSProbesSHAtlasG.dimension							= TextureDimension.Tex3D;
 			SSProbesSHAtlasG.enableRandomWrite					= true;
-			SSProbesSHAtlasG.filterMode							= FilterMode.Trilinear;
+			SSProbesSHAtlasG.filterMode							= FilterMode.Bilinear;
 			SSProbesSHAtlasG.wrapMode							= TextureWrapMode.Clamp;
 			SSProbesSHAtlasG.anisoLevel							= 0;
 			SSProbesSHAtlasG.Create();
@@ -45,7 +45,7 @@ namespace Avol.IndirectFlux
 			SSProbesSHAtlasB.volumeDepth						= 9;
 			SSProbesSHAtlasB.dimension							= TextureDimension.Tex3D;
 			SSProbesSHAtlasB.enableRandomWrite					= true;
-			SSProbesSHAtlasB.filterMode							= FilterMode.Trilinear;
+			SSProbesSHAtlasB.filterMode							= FilterMode.Bilinear;
 			SSProbesSHAtlasB.wrapMode							= TextureWrapMode.Clamp;
 			SSProbesSHAtlasB.anisoLevel							= 0;
 			SSProbesSHAtlasB.Create();

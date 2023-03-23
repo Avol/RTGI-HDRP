@@ -9,6 +9,7 @@ Shader "FullScreen/Compose"
 
 	#include "./Octahedron.cginc"
 	#include "./SH2.cginc" 
+	#include "./Probes.cginc" 
 
 	#include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/RenderPass/CustomPass/CustomPassCommon.hlsl"
 	#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/NormalBuffer.hlsl"
@@ -36,7 +37,6 @@ Shader "FullScreen/Compose"
 	uniform sampler2D _SSProbesFiltered;
 	uniform sampler2D _SurfaceBRDF;
 	uniform sampler2D _LightningPDF;
-	uniform sampler2D _DistancePlane;
 
 	uniform sampler3D _SHAtlasR;
 	uniform sampler3D _SHAtlasG;
@@ -62,23 +62,13 @@ Shader "FullScreen/Compose"
 	uniform				int			_VisualizeSurfaceBRDF;
 	uniform				int			_VisualizeLightningPDF;
 
-	uniform				int			_Reflections;
+	uniform				bool		_DiffuseGI;
+	uniform				bool		_Reflections;
 	uniform				bool		_VisualizeWorldProbes;
 	uniform				bool		_TrilinearOffset;
 	uniform				bool		_TrilinearOffset2;
+	uniform				bool		_NormalWeight;
 
-	static float2 closestPixels[9] =
-	{
-		float2(0, 0),
-		float2(-1, 1),
-		float2(0, 1),
-		float2(1, 1),
-		float2(1, 0),
-		float2(1, -1),
-		float2(0, -1),
-		float2(-1, -1),
-		float2(-1, 0),
-	};
 
 	// Retrieves world space normal and linear depth.
 	// @ positionCS = screen space UV coordinate.
@@ -101,49 +91,8 @@ Shader "FullScreen/Compose"
 		return normalDepth;
 	}
 
-	// Clamps UV to smaller resolution.
-	// @ positionCS = screen space UV coordinate.
-	float2 ClampCoordinate(float2 positionNDC, float2 resolution, int downscale)
-	{
-		float2	t = floor(positionNDC * resolution);
-		float2	m = t % downscale;
-		float2	d = positionNDC - m / resolution;
-		return d;
-	}
-
-	// Clamps UV to smaller resolution.
-	// @ positionCS = screen space UV coordinate.
-	float2 ClampCoordinateBilinearCenter(float2 positionCS, float2 resolution, int downscale)
-	{
-		float2	m = positionCS - positionCS % downscale + downscale / 2;
-		float2	d = m / resolution;
-		return d;
-	}
-
-	//  Compare probe vs pixel distance and normal.
 	//
-	int DistancePlaneWeighting(float3 fromNormal, float3 fromWorldPosition, float fromDepth, float3 toWorldPosition)
-	{
-		float4	probeScenePlane				= float4(fromNormal, dot(fromWorldPosition, fromNormal));
-
-		float	planeDistance				= abs(dot(float4(toWorldPosition, -1), probeScenePlane));
-		float	relativeDepthDifference		= planeDistance / fromDepth;
-
-		return exp2(-10000 * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
-	}
-
-	//  Compare probe vs pixel distance and normal.
 	//
-	float DistancePlaneWeighting2(float3 fromNormal, float3 fromWorldPosition, float fromDepth, float3 toWorldPosition)
-	{
-		float4	probeScenePlane				= float4(fromNormal, dot(fromWorldPosition, fromNormal));
-
-		float	planeDistance				= abs(dot(float4(toWorldPosition, -1), probeScenePlane));
-		float	relativeDepthDifference		= planeDistance / fromDepth;
-
-		return exp2(-10000 * (relativeDepthDifference * relativeDepthDifference));
-	}
-
 	int GetWorldProbePixel(float2 positionNDC, float2 positionCS)
 	{
 		float3 worldPosition;
@@ -157,14 +106,27 @@ Shader "FullScreen/Compose"
 		return 0;
 	}
 
+	//
+	//
 	bool checkProbeBlendMatch(float2 probeNDC, float2 dir, float4 sceneNormalDepth, float3 sceneWorldPosition)
 	{
 		float2	neighbourProbeNDC				= probeNDC + (dir / _ProbeLayoutResolution * _ProbeSize);
+
+		if (neighbourProbeNDC.x < 0 || neighbourProbeNDC.y < 0 ||
+			neighbourProbeNDC.x > 1 || neighbourProbeNDC.y > 1)
+			return 1;
 
 		float3	neighbourWorldPosition			= 0;
 		float4	neighbourProbeNormalDepth		= GetNormalDepth(neighbourProbeNDC * _ProbeLayoutResolution, neighbourWorldPosition);
 
 		float	neighbourProbeDistanceWeight	= DistancePlaneWeighting2(sceneNormalDepth.xyz, sceneWorldPosition, sceneNormalDepth.w, neighbourWorldPosition);
+
+		if (_NormalWeight)
+		{
+			float normalWeight = max(0, dot(sceneNormalDepth.xyz, neighbourProbeNormalDepth.xyz));
+			if (neighbourProbeDistanceWeight > normalWeight)
+				neighbourProbeDistanceWeight = normalWeight;
+		}
 
 		return neighbourProbeDistanceWeight < 0.1f;
 	}
@@ -201,12 +163,21 @@ Shader "FullScreen/Compose"
 		float3	probeWorldPosition			= 0;
 		float4  probeNormalDepth			= GetNormalDepth(probeNDC * _ProbeLayoutResolution, probeWorldPosition);
 
-		// ------- weight probes for distance normal to find best matching one ----- //
+		// ------- weight probes for distance & normal to find best matching one ----- //
 		if (_DistancePlaneWeighting)
 		{
 			float distanceWeight	= DistancePlaneWeighting2(sceneNormalDepth.xyz, sceneWorldPosition, sceneNormalDepth.w, probeWorldPosition);
 
-			if (distanceWeight <= 0.1)
+
+			float normalWeight = max(0, dot(sceneNormalDepth.xyz, probeNormalDepth.xyz));
+			if (_NormalWeight)
+			{
+				//float normalWeight = max(0, dot(sceneNormalDepth.xyz, probeNormalDepth.xyz));
+				if (distanceWeight > normalWeight)
+					distanceWeight = normalWeight;
+			}
+
+			if (distanceWeight <= 0.1 || normalWeight < 0.5f)
 			{
 				if (_VisualizeDistancePlaneWeighting)
 					return 1;
@@ -219,10 +190,22 @@ Shader "FullScreen/Compose"
 				{
 					float2	neighbourProbeNDC					= probeNDC + closestPixels[i] / _ProbeLayoutResolution * _ProbeSize;
 
+					// out of screen
+					if (neighbourProbeNDC.x < 0 || neighbourProbeNDC.y < 0 ||
+						neighbourProbeNDC.x > 1 || neighbourProbeNDC.y > 1)
+						continue;
+
 					float3	neighbourWorldPosition				= 0;
 					float4	neighbourProbeNormalDepth			= GetNormalDepth(neighbourProbeNDC * _ProbeLayoutResolution, neighbourWorldPosition);
 
 					float	neighbourProbeDistanceWeight		= DistancePlaneWeighting2(sceneNormalDepth.xyz, sceneWorldPosition, sceneNormalDepth.w, neighbourWorldPosition);
+
+					if (_NormalWeight)
+					{
+						float	normalWeight = max(0, dot(sceneNormalDepth.xyz, neighbourProbeNormalDepth.xyz));
+						if (neighbourProbeDistanceWeight > normalWeight)
+							neighbourProbeDistanceWeight = normalWeight;
+					}
 
 					if (biggestWeight < neighbourProbeDistanceWeight)
 					{
@@ -234,7 +217,7 @@ Shader "FullScreen/Compose"
 				positionNDC = closestPositionNDC;
 
 				if (_TrilinearOffset)
-					positionNDC = ClampCoordinateBilinearCenter(positionNDC * _ProbeLayoutResolution, _ProbeLayoutResolution, _ProbeSize);
+					positionNDC = ClampCoordinateBilinearCenter(closestPositionNDC * _ProbeLayoutResolution, _ProbeLayoutResolution, _ProbeSize);
 			}
 			else
 			{
@@ -305,92 +288,14 @@ Shader "FullScreen/Compose"
 
 						if (missmatch.x != 0 || missmatch.y != 0)
 						{
-							//return 1;
-							float2 clampedPositionNDC = ClampCoordinateBilinearCenter(positionCS, _ProbeLayoutResolution, _ProbeSize);
+							if (_VisualizeDistancePlaneWeighting)
+								return 1;
 
+							float2 clampedPositionNDC = ClampCoordinateBilinearCenter(positionCS, _ProbeLayoutResolution, _ProbeSize);
+							//positionNDC = clampedPositionNDC;
 							positionNDC.x = missmatch.x == 1 ? clampedPositionNDC.x : positionNDC.x;
 							positionNDC.y = missmatch.y == 1 ? clampedPositionNDC.y : positionNDC.y;
 						}
-
-						// TODO: compare neighbour probe distance plane anyways.
-
-						/*
-
-						bool checkLeft = false;
-						bool checkDown = false;
-
-						uint2 missmatch = uint2(0, 0);
-
-
-						
-						
-						
-
-						// check left
-						//if (offsetNDC.x > 0)
-						 {
-							float distancePlane = tex2D(_DistancePlane, (probeCS - float2(_ProbeSize/2, 0)) / _ProbeLayoutResolution);
-							if (distancePlane == 1)
-								missmatch.x = 1;
-						}
-
-						// check right
-						{
-							float distancePlane = tex2D(_DistancePlane, (probeCS + float2(_ProbeSize / 2, 0)) / _ProbeLayoutResolution);
-							if (distancePlane == 1)
-								missmatch.x = 1;
-						}
-
-						// check down
-						//if (offsetNDC.x > 0)
-						{
-							checkDown = true;
-
-							float distancePlane = tex2D(_DistancePlane, (probeCS - float2(0, _ProbeSize / 2)) / _ProbeLayoutResolution);
-							if (distancePlane == 1)
-								missmatch.y = 1;
-						}
-
-						// check up
-						{
-							float distancePlane = tex2D(_DistancePlane, (probeCS + float2(0, _ProbeSize / 2)) / _ProbeLayoutResolution);
-							if (distancePlane == 1)
-								missmatch.y = 1;
-						}
-
-						
-						//if (checkLeft && checkDown)
-						{
-							float distancePlane = tex2D(_DistancePlane, (probeCS - float2(_ProbeSize / 2, _ProbeSize / 2)) / _ProbeLayoutResolution);
-							if (distancePlane == 1)
-								missmatch.x = 1;
-						}
-						//if (checkLeft && !checkDown)
-						{
-							float distancePlane = tex2D(_DistancePlane, (probeCS - float2(_ProbeSize / 2, -_ProbeSize / 2)) / _ProbeLayoutResolution);
-							if (distancePlane == 1)
-								missmatch.x = 1;
-						}
-
-						//if (!checkLeft && !checkDown)
-						{
-							float distancePlane = tex2D(_DistancePlane, (probeCS - float2(-_ProbeSize / 2, -_ProbeSize / 2)) / _ProbeLayoutResolution);
-							if (distancePlane == 1)
-								missmatch.x = 1;
-						}
-						//if (!checkLeft && checkDown)
-						{
-							float distancePlane = tex2D(_DistancePlane, (probeCS - float2(-_ProbeSize / 2, _ProbeSize / 2)) / _ProbeLayoutResolution);
-							if (distancePlane == 1)
-								missmatch.x = 1;
-						}
-
-						if (missmatch.x != 0 || missmatch.y != 0)
-						{
-							//return 1;
-							positionNDC = ClampCoordinateBilinearCenter(positionCS, _ProbeLayoutResolution, _ProbeSize);
-						}
-						*/
 					}
 				}
 			}
@@ -417,31 +322,50 @@ Shader "FullScreen/Compose"
 		sh9Color.sh8 = float3(tex3D(_SHAtlasR, float3(positionNDC, 8 / 8.0)).r * 2 - 1,  tex3D(_SHAtlasG, float3(positionNDC, 8 / 8.0)).r * 2 - 1,  tex3D(_SHAtlasB, float3(positionNDC, 8 / 8.0)).r * 2 - 1);
 
 
-		float4 gBufferAlbedo = LOAD_TEXTURE2D_X(_GBufferTexture0, positionCS);
-		gBufferAlbedo = max(0.01, gBufferAlbedo);
+		float4 gBufferAlbedo	= max(0.01, LOAD_TEXTURE2D_X(_GBufferTexture0, positionCS));	// albedo, ao
+		float4 gBufferSurface	= LOAD_TEXTURE2D_X(_GBufferTexture1, positionCS);	// normal, roughness
+		float4 gBufferSurface2	= LOAD_TEXTURE2D_X(_GBufferTexture2, positionCS);	// z = metallic.
 
-		//float3	exposure	= /*GetCurrentExposureMultiplier() * */_Exposure;
-		//float	exposureMult = GetCurrentExposureMultiplier();
+		float	gBufferRoughness	= gBufferSurface.w;
+		float	gBufferMetallic		= gBufferSurface2.z;
 
-		float3	radiance = calcIrradiance(sceneNormalDepth.xyz, sh9Color) * gBufferAlbedo.rgb * _Exposure;// *exposure;
+		float3	radiance			= calcIrradiance(sceneNormalDepth.xyz, sh9Color) * gBufferAlbedo.rgb * gBufferAlbedo.a;
 
 
-		if (_Reflections)
+
+		float3	viewVector			= normalize(sceneWorldPosition - _WorldSpaceCameraPos);
+		float3	reflectVector		= reflect(viewVector, normalize(sceneNormalDepth.xyz));
+		float2	octaUV				= OctahedronUV(reflectVector) / _ProbeLayoutResolution * _ProbeSize;
+
+		float3	reflection			= calcIrradiance(reflectVector, sh9Color) * gBufferAlbedo.a;
+
+
+
+		/*
+		float3 baseColor = lerp(diffuseColor.rgb, specularColor.rgb, metallic);
+		float roughness = saturate(roughnessValue);
+		float3 diffuseComponent = baseColor * (1.0 - metallic);
+		float3 specularComponent = specularColor.rgb;
+		float3 reflectionComponent = lerp(specularComponent, baseColor, roughness * roughness);
+		float3 finalColor = lerp(diffuseComponent, reflectionComponent, metallic);
+		*/
+
+
+		if (_DiffuseGI && _Reflections)
 		{
-			float	gBufferRoughness		= LOAD_TEXTURE2D_X(_GBufferTexture1, positionCS).w;
-
-			float3	viewVector			= normalize(sceneWorldPosition - _WorldSpaceCameraPos);
-			float3	reflectVector		= reflect(viewVector, normalize(sceneNormalDepth.xyz));
-			float2	octaUV				= OctahedronUV(reflectVector) / _ProbeLayoutResolution * _ProbeSize;
-
-			//float3	reflection = tex2D(_SSProbesFiltered, probeNDC + octaUV).rgb;
-			float3	reflection			= calcIrradiance(reflectVector, sh9Color) * _Exposure;
-
-			return float4(lerp(reflection, radiance, gBufferRoughness), 1);
+			return float4(lerp(radiance, reflection, gBufferMetallic), 1) * PI * _Exposure;
+		}
+		else if (_DiffuseGI && !_Reflections)
+		{
+			return float4(radiance, 1) * _Exposure;
+		}
+		else if (!_DiffuseGI && _Reflections)
+		{
+			return float4(lerp(0, reflection, gBufferMetallic), 1) * PI * _Exposure;
 		}
 		else
 		{
-			return float4(radiance, 1);
+			return 0;
 		}
     }
 

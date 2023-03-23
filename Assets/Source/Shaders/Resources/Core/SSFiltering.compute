@@ -6,6 +6,7 @@
 #include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/Builtin/BuiltinData.hlsl"
 
 #include "../Octahedron.cginc"
+#include "../Probes.cginc"
 
 Texture2D<float4>		_HistoryNormalDepth;
 uniform float4x4		_HistoryIVPMatrix;
@@ -24,28 +25,8 @@ uniform float2			_ProbeLayoutResolution;
 uniform float2			_ScreenResolution;
 uniform int				_DistancePlaneWeighting;
 uniform int				_AngleWeighting;
+uniform bool			_NormalWeight;
 
-static float2 closestPixels[9] =
-{
-	float2(0, 0),
-	float2(-1, 1),
-	float2(0, 1),
-	float2(1, 1),
-	float2(1, 0),
-	float2(1, -1),
-	float2(0, -1),
-	float2(-1, -1),
-	float2(-1, 0),
-};
-
-static float2 sidePixels[5] =
-{
-	float2(0, 0),
-	float2(-1, 0),
-	float2(0, 1),
-	float2(0, -1),
-	float2(1, 0),
-};
 
 
 
@@ -103,17 +84,6 @@ uint TestOutsideTextureBounds(uint2 uv, uint2 resolution)
 	if (uv.x >= resolution.x || uv.y >= resolution.y)
 		return 0;
 	return 1;
-}
-
-//  Compare probe vs pixel distance and normal.
-//
-int DistancePlaneWeighting(float3 fromNormal, float3 fromWorldPosition, float fromDepth, float3 toWorldPosition)
-{
-	float4	probeScenePlane				= float4(fromNormal, dot(fromWorldPosition, fromNormal));
-	float	planeDistance				= abs(dot(float4(toWorldPosition, -1), probeScenePlane));
-	float	relativeDepthDifference		= planeDistance / fromDepth;
-
-	return exp2(-10000 * (relativeDepthDifference * relativeDepthDifference)) > .1 ? 1.0 : 0.0;
 }
 
 // reprojects history samples to current position.
@@ -211,7 +181,8 @@ void SSTemporalReprojection(uint3 id : SV_DispatchThreadID)
 		return;
 	}
 
-	_TemporalAccumulation[id.xy]	= lerp(float4(historyRadiance.rgb, newRadiance.w), newRadiance, temporalWeight);
+	//_TemporalAccumulation[id.xy] = lerp(_TemporalAccumulation[id.xy], newRadiance, _TemporalWeight);
+	_TemporalAccumulation[id.xy] = lerp(float4(historyRadiance.rgb, newRadiance.w), newRadiance, temporalWeight);
 }
 
 // Spatial reprojection

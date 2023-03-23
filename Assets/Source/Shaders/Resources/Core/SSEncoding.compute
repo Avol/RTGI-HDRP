@@ -45,9 +45,10 @@ void SSFiltering(uint3 id : SV_DispatchThreadID)
 				shOutput.sh8 += sh9Color.sh8;
 
 				mixedColor += radiance;
-			//}
+			
 				
-			weightSum += 1;// luminance(radiance.rgb) * 3;
+				weightSum += 1;// luminance(radiance.rgb) * 3;
+			//}
 		}
 	}
 
