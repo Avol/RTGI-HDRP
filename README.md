@@ -15,6 +15,8 @@ This is done in screen space(which we need for fine detail) so has alot of spati
 
 Screen Space Probes (Octahedral layout):
 ![image](https://github.com/user-attachments/assets/aef39bc0-538c-4555-81ed-5ff53715e166)
+![image](https://github.com/user-attachments/assets/a3ef6119-5f3b-4b3d-806b-23275d1d7c10)
+
 
 Lighting PDF (Used for importance sampling):
 ![image](https://github.com/user-attachments/assets/679e310d-7e69-46c7-a1b3-c8c4e6e30f2f)
