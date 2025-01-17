@@ -4,7 +4,7 @@ Heavily inspired by UE5's hardware Lumen.
 
 Algorithm uses octaherdral mapping to store occlusion and diffuse bounce in 8x8 directional(configurable in quality settings) pattern in low resolution and jitters direction and location over multiple frames to gather probe data over multiple frames.
 Probe data is later filtered using spherical harmonics and interpolated onto screen pixels. 
-This is done in screen space(which we need for fine detail) so has alot of spatial instability and still requires a world space radiance cache to be more stable. Additionally the spatiotemporal filter quite incomplete and need to be implemented properly.
+This is done in screen space(which we need for fine detail) so has alot of spatial instability and still requires a world space radiance cache to be more stable. Additionally the spatiotemporal filter quite incomplete and needs to be implemented properly.
 
 
 ![image](https://github.com/user-attachments/assets/93869c77-f21c-4580-bded-d3ca05374cd4)
